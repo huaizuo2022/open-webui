@@ -30,6 +30,12 @@ from open_webui.models.groups import Groups
 from open_webui.models.oauth_sessions import OAuthSessions
 
 from open_webui.constants import ERROR_MESSAGES, WEBHOOK_MESSAGES
+from open_webui.utils.email import (
+    generate_verification_code,
+    store_verification_code,
+    verify_code,
+    send_verification_email,
+)
 from open_webui.env import (
     WEBUI_AUTH,
     WEBUI_AUTH_TRUSTED_EMAIL_HEADER,
@@ -182,6 +188,27 @@ async def get_session_user(
         token = request.cookies.get('token')
     if token is None and getattr(request.state, 'token', None):
         token = request.state.token.credentials
+
+    if token is None and not WEBUI_AUTH:
+        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+        expires_at = None
+        if expires_delta:
+            expires_at = int(time.time()) + int(expires_delta.total_seconds())
+
+        token = create_token(
+            data={'id': user.id},
+            expires_delta=expires_delta,
+        )
+
+        response.set_cookie(
+            key='token',
+            value=token,
+            expires=(datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc) if expires_at else None),
+            httponly=True,
+            samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+            secure=WEBUI_AUTH_COOKIE_SECURE,
+        )
+
     data = decode_token(token) if token else None
 
     expires_at = None
@@ -609,32 +636,24 @@ async def signin(
                     log.warning(f'Ignoring invalid trusted role header value: {trusted_role}')
 
     elif WEBUI_AUTH == False:
-        admin_email = 'admin@localhost'
-        admin_password = 'admin'
+        guest_email = 'guest@localhost'
+        user = await Users.get_user_by_email(guest_email.lower(), db=db)
 
-        if await Users.get_user_by_email(admin_email.lower(), db=db):
-            user = await Auths.authenticate_user(
-                admin_email.lower(),
-                lambda pw: verify_password(admin_password, pw),
-                db=db,
-            )
-        else:
-            if await Users.has_users(db=db):
-                raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
-
+        if user is None and not await Users.has_users(db=db):
             await signup_handler(
                 request,
-                admin_email,
-                admin_password,
-                'User',
+                guest_email,
+                str(uuid.uuid4()),
+                'Guest',
                 db=db,
             )
+            user = await Users.get_user_by_email(guest_email.lower(), db=db)
 
-            user = await Auths.authenticate_user(
-                admin_email.lower(),
-                lambda pw: verify_password(admin_password, pw),
-                db=db,
-            )
+        if user is None:
+            first_user = await Users.get_first_user(db=db)
+            if first_user is None:
+                raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
+            user = first_user
     else:
         if signin_rate_limiter.is_limited(form_data.email.lower()):
             raise HTTPException(
@@ -663,6 +682,79 @@ async def signin(
         raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
 
 
+############################
+# Send Verification Code
+############################
+
+@router.post('/send-verification-code', response_model=dict)
+async def send_verification_code(
+    request: Request,
+    response: Response,
+    form_data: SigninForm,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send verification code to email for passwordless login."""
+    email = form_data.email.lower()
+    
+    # Check if user exists (optional: allow sending code to non-existing users for registration)
+    user = await Users.get_user_by_email(email, db=db)
+    
+    # Generate and store verification code
+    code = generate_verification_code()
+    store_verification_code(email, code)
+    
+    # Send email
+    sent = await send_verification_email(email, code)
+    
+    if sent:
+        return {'detail': 'Verification code sent successfully.'}
+    else:
+        # For development/testing: return code in response if SMTP not configured
+        if not all([SMTP_SERVER, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM_EMAIL]):
+            return {'detail': 'SMTP not configured. Verification code (for testing): ' + code}
+        raise HTTPException(500, detail='Failed to send verification email.')
+
+
+############################
+# SignIn with Verification Code
+############################
+
+@router.post('/signin-with-code', response_model=SigninResponse)
+async def signin_with_code(
+    request: Request,
+    response: Response,
+    form_data: SigninForm,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign in using email and verification code."""
+    email = form_data.email.lower()
+    code = form_data.password  # Using password field to pass verification code
+    
+    # Verify code
+    if not verify_code(email, code):
+        raise HTTPException(400, detail='Invalid or expired verification code.')
+    
+    # Get or create user
+    user = await Users.get_user_by_email(email, db=db)
+    
+    if not user:
+        # Auto-register user if not exists
+        user = await Auths.insert_new_auth(
+            email=email,
+            password=get_password_hash(str(uuid.uuid4())),  # Random password
+            name=email.split('@')[0] if '@' in email else 'User',
+            role='user',
+            db=db,
+        )
+    
+    if user:
+        return await create_session_response(request, user, db, response, set_cookie=True)
+    else:
+        raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
+
+
+############################
+# SignUp
 ############################
 # SignUp
 ############################

@@ -505,7 +505,7 @@ except ValueError:
 # WEBUI_AUTH (Required for security)
 ####################################
 
-WEBUI_AUTH = os.environ.get('WEBUI_AUTH', 'True').lower() == 'true'
+WEBUI_AUTH = os.environ.get('WEBUI_AUTH', 'False').lower() == 'true'
 
 ENABLE_INITIAL_ADMIN_SIGNUP = os.environ.get('ENABLE_INITIAL_ADMIN_SIGNUP', 'False').lower() == 'true'
 ENABLE_SIGNUP_PASSWORD_CONFIRMATION = os.environ.get('ENABLE_SIGNUP_PASSWORD_CONFIRMATION', 'False').lower() == 'true'
@@ -1056,3 +1056,15 @@ EXTERNAL_PWA_MANIFEST_URL = os.environ.get('EXTERNAL_PWA_MANIFEST_URL')
 # Env var values: "true" (anyone), "false" (no one), "members" (only group members).
 _default_group_share = os.environ.get('DEFAULT_GROUP_SHARE_PERMISSION', 'members').strip().lower()
 DEFAULT_GROUP_SHARE_PERMISSION = 'members' if _default_group_share == 'members' else _default_group_share == 'true'
+
+####################################
+# SMTP CONFIGURATION FOR EMAIL VERIFICATION
+####################################
+
+SMTP_SERVER = os.environ.get('SMTP_SERVER', '')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+SMTP_USE_TLS = os.environ.get('SMTP_USE_TLS', 'True').lower() == 'true'
+SMTP_FROM_EMAIL = os.environ.get('SMTP_FROM_EMAIL', '')
+SMTP_FROM_NAME = os.environ.get('SMTP_FROM_NAME', 'Open WebUI')
