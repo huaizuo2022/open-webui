@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-批量导入 ~/.agents/skills/ 到 Open WebUI
-使用方法: python3 import_skills.py [--dry-run]
+批量导入技能到远程 Open WebUI
+使用方法: python3 import_skills_remote.py [--dry-run]
 """
 
 import os
@@ -12,43 +12,24 @@ import requests
 from pathlib import Path
 
 # 配置
-OPENWEBUI_URL = "http://127.0.0.1:8081"
-DRY_RUN = "--dry-run" in sys.argv
-
-# 支持多个技能目录
-DEFAULT_SKILLS_DIRS = [
+OPENWEBUI_URL = "https://expanded-wishes-compression-pst.trycloudflare.com"
+SKILLS_DIRS = [
     Path.home() / ".agents" / "skills",
     Path.home() / ".codex" / "skills",
 ]
-
-def get_skills_dirs():
-    """获取要导入的技能目录列表"""
-    # 从命令行参数读取（--dir /path/to/skills）
-    dirs = []
-    i = 0
-    while i < len(sys.argv):
-        if sys.argv[i] == '--dir' and i + 1 < len(sys.argv):
-            dirs.append(Path(sys.argv[i + 1]))
-            i += 2
-        else:
-            i += 1
-    
-    return dirs if dirs else DEFAULT_SKILLS_DIRS
+DRY_RUN = "--dry-run" in sys.argv
 
 def parse_skill_md(file_path):
     """解析 SKILL.md 文件，提取 front matter 和 content"""
     try:
         content = file_path.read_text(encoding='utf-8')
     except Exception as e:
-        print(f"  ❌ 读取失败: {e}")
         return None
     
-    # 匹配 YAML front matter (--- ... ---)
     pattern = r'^---\s*\n(.*?)\n---\s*\n(.*)'
     match = re.match(pattern, content, re.DOTALL)
     
     if not match:
-        print(f"  ⚠️  未找到 YAML front matter，使用整个文件作为 content")
         return {
             'name': file_path.parent.name,
             'description': '',
@@ -59,7 +40,6 @@ def parse_skill_md(file_path):
     front_matter_text = match.group(1)
     skill_content = match.group(2)
     
-    # 简单解析 YAML front matter
     meta = {'tags': []}
     name = file_path.parent.name
     description = ''
@@ -84,7 +64,7 @@ def parse_skill_md(file_path):
 def get_auth_token():
     """获取匿名用户 token"""
     try:
-        resp = requests.get(f"{OPENWEBUI_URL}/api/v1/auths/", timeout=5)
+        resp = requests.get(f"{OPENWEBUI_URL}/api/v1/auths/", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             return data.get('token')
@@ -97,15 +77,9 @@ def get_auth_token():
 
 def skill_exists(token, skill_id):
     """检查技能是否已存在"""
-    headers = {
-        'Authorization': f'Bearer {token}'
-    }
+    headers = {'Authorization': f'Bearer {token}'}
     try:
-        resp = requests.get(
-            f"{OPENWEBUI_URL}/api/v1/skills/",
-            headers=headers,
-            timeout=5
-        )
+        resp = requests.get(f"{OPENWEBUI_URL}/api/v1/skills/", headers=headers, timeout=10)
         if resp.status_code == 200:
             skills = resp.json()
             return any(s.get('id') == skill_id for s in skills)
@@ -113,18 +87,17 @@ def skill_exists(token, skill_id):
         pass
     return False
 
-def create_skill(token, skill_data, skip_existing=True):
+def create_skill(token, skill_data):
     """通过 API 创建技能"""
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'
     }
     
-    # 生成 skill id (小写，替换空格为-)
     skill_id = skill_data['name'].lower().replace(' ', '-')
     
     # 检查是否已存在
-    if skip_existing and skill_exists(token, skill_id):
+    if skill_exists(token, skill_id):
         return 'skipped', '技能已存在'
     
     payload = {
@@ -141,18 +114,16 @@ def create_skill(token, skill_data, skip_existing=True):
             f"{OPENWEBUI_URL}/api/v1/skills/create",
             headers=headers,
             json=payload,
-            timeout=10
+            timeout=30
         )
         if resp.status_code == 200:
             return True, resp.json()
         else:
-            return False, resp.text
+            return False, resp.text[:200]
     except Exception as e:
         return False, str(e)
 
 def main():
-    skills_dirs = get_skills_dirs()
-    
     print(f"🎯 目标 Open WebUI: {OPENWEBUI_URL}")
     if DRY_RUN:
         print("🔍 DRY RUN 模式，不会实际创建技能\n")
@@ -164,7 +135,7 @@ def main():
         print("🔐 获取认证 token...")
         token = get_auth_token()
         if not token:
-            print("❌ 获取 token 失败，退出")
+            print("❌ 无法获取 token，退出")
             return
         print(f"✅ Token 获取成功\n")
     
@@ -172,14 +143,11 @@ def main():
     total_skip = 0
     total_error = 0
     
-    for skills_dir in skills_dirs:
+    for skills_dir in SKILLS_DIRS:
         if not skills_dir.exists():
-            print(f"⚠️  技能目录不存在: {skills_dir}")
             continue
         
         print(f"📂 扫描技能目录: {skills_dir}")
-        
-        # 扫描技能目录
         skill_dirs = [d for d in skills_dir.iterdir() if d.is_dir()]
         print(f"📊 找到 {len(skill_dirs)} 个技能目录\n")
         
@@ -188,112 +156,45 @@ def main():
         error_count = 0
         
         for skill_dir in sorted(skill_dirs):
-            # 跳过隐藏目录和以 . 开头的目录
             if skill_dir.name.startswith('.'):
                 continue
                 
             skill_md = skill_dir / "SKILL.md"
             if not skill_md.exists():
-                print(f"⏭️  {skill_dir.name}: 未找到 SKILL.md，跳过")
-                skip_count += 1
                 continue
             
-            print(f"📦 处理: {skill_dir.name}")
-            
-            # 解析 SKILL.md
             skill_data = parse_skill_md(skill_md)
             if not skill_data:
                 error_count += 1
                 continue
             
-            print(f"   - 名称: {skill_data['name']}")
-            print(f"   - 描述: {skill_data['description'][:50]}...")
-            
             if DRY_RUN:
-                print(f"   ✓ DRY RUN，跳过创建\n")
                 success_count += 1
                 continue
             
-            # 创建技能
             success, result = create_skill(token, skill_data)
             if success is True:
-                print(f"   ✅ 创建成功")
                 success_count += 1
             elif success == 'skipped':
-                print(f"   ⏭️  已存在，跳过")
                 skip_count += 1
             else:
-                print(f"   ❌ 创建失败: {result[:100]}")
                 error_count += 1
-            print("")
         
         total_success += success_count
         total_skip += skip_count
         total_error += error_count
         
-        # 汇总
-        print("=" * 50)
         print(f"目录: {skills_dir}")
         print(f"✅ 成功: {success_count}")
         print(f"⏭️  跳过: {skip_count}")
         print(f"❌ 失败: {error_count}")
-        print("=" * 50)
-        print("")
+        print("=" * 50 + "\n")
     
-    # 总汇总
     print("\n" + "=" * 50)
     print(f"总计:")
     print(f"✅ 总成功: {total_success}")
     print(f"⏭️  总跳过: {total_skip}")
     print(f"❌ 总失败: {total_error}")
-    print("=" * 50)
-    
-    success_count = 0
-    skip_count = 0
-    error_count = 0
-    
-    for skill_dir in sorted(skill_dirs):
-        # 跳过隐藏目录和以 . 开头的目录
-        if skill_dir.name.startswith('.'):
-            continue
-            
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
-            print(f"⏭️  {skill_dir.name}: 未找到 SKILL.md，跳过")
-            skip_count += 1
-            continue
-        
-        print(f"📦 处理: {skill_dir.name}")
-        
-        # 解析 SKILL.md
-        skill_data = parse_skill_md(skill_md)
-        if not skill_data:
-            error_count += 1
-            continue
-        
-        print(f"   - 名称: {skill_data['name']}")
-        print(f"   - 描述: {skill_data['description'][:50]}...")
-        
-        if DRY_RUN:
-            print(f"   ✓ DRY RUN，跳过创建\n")
-            success_count += 1
-            continue
-        
-        # 创建技能
-        success, result = create_skill(token, skill_data)
-        if success:
-            print(f"   ✅ 创建成功")
-            success_count += 1
-        else:
-            print(f"   ❌ 创建失败: {result[:100]}")
-            error_count += 1
-        print("")
-    
-    # 汇总
-    print("=" * 50)
-    print(f"✅ 成功: {success_count}")
-    print(f"⏭️  跳过: {skip_count}")
-    print(f"❌ 失败: {error_count}")
     print("=" * 50)
 
 if __name__ == "__main__":
