@@ -691,7 +691,7 @@ async def send_verification_code(
     request: Request,
     response: Response,
     form_data: SigninForm,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     """Send verification code to email for passwordless login."""
     email = form_data.email.lower()
@@ -724,7 +724,7 @@ async def signin_with_code(
     request: Request,
     response: Response,
     form_data: SigninForm,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_async_session),
 ):
     """Sign in using email and verification code."""
     email = form_data.email.lower()
