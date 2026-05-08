@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""
+批量导入 ~/.agents/skills/ 到 Open WebUI
+使用方法: python3 import_skills.py [--dry-run]
+"""
+
+import os
+import re
+import sys
+import json
+import requests
+from pathlib import Path
+
+# 配置
+OPENWEBUI_URL = "http://127.0.0.1:8081"
+SKILLS_DIR = Path.home() / ".agents" / "skills"
+DRY_RUN = "--dry-run" in sys.argv
+
+def parse_skill_md(file_path):
+    """解析 SKILL.md 文件，提取 front matter 和 content"""
+    try:
+        content = file_path.read_text(encoding='utf-8')
+    except Exception as e:
+        print(f"  ❌ 读取失败: {e}")
+        return None
+    
+    # 匹配 YAML front matter (--- ... ---)
+    pattern = r'^---\s*\n(.*?)\n---\s*\n(.*)'
+    match = re.match(pattern, content, re.DOTALL)
+    
+    if not match:
+        print(f"  ⚠️  未找到 YAML front matter，使用整个文件作为 content")
+        return {
+            'name': file_path.parent.name,
+            'description': '',
+            'content': content,
+            'meta': {'tags': []}
+        }
+    
+    front_matter_text = match.group(1)
+    skill_content = match.group(2)
+    
+    # 简单解析 YAML front matter
+    meta = {'tags': []}
+    name = file_path.parent.name
+    description = ''
+    
+    for line in front_matter_text.split('\n'):
+        if line.startswith('name:'):
+            name = line.split(':', 1)[1].strip().strip("'\"")
+        elif line.startswith('description:'):
+            description = line.split(':', 1)[1].strip().strip("'\"")
+        elif line.startswith('tags:'):
+            tags_str = line.split(':', 1)[1].strip()
+            if tags_str:
+                meta['tags'] = [t.strip() for t in tags_str.split(',')]
+    
+    return {
+        'name': name,
+        'description': description,
+        'content': skill_content,
+        'meta': meta
+    }
+
+def get_auth_token():
+    """获取匿名用户 token"""
+    try:
+        resp = requests.get(f"{OPENWEBUI_URL}/api/v1/auths/", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get('token')
+        else:
+            print(f"❌ 获取 token 失败: {resp.status_code}")
+            return None
+    except Exception as e:
+        print(f"❌ 连接 Open WebUI 失败: {e}")
+        return None
+
+def create_skill(token, skill_data):
+    """通过 API 创建技能"""
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    
+    # 生成 skill id (小写，替换空格为-)
+    skill_id = skill_data['name'].lower().replace(' ', '-')
+    
+    payload = {
+        'id': skill_id,
+        'name': skill_data['name'],
+        'description': skill_data['description'],
+        'content': skill_data['content'],
+        'meta': skill_data['meta'],
+        'is_active': True
+    }
+    
+    try:
+        resp = requests.post(
+            f"{OPENWEBUI_URL}/api/v1/skills/create",
+            headers=headers,
+            json=payload,
+            timeout=10
+        )
+        if resp.status_code == 200:
+            return True, resp.json()
+        else:
+            return False, resp.text
+    except Exception as e:
+        return False, str(e)
+
+def main():
+    print(f"📂 扫描技能目录: {SKILLS_DIR}")
+    print(f"🎯 目标 Open WebUI: {OPENWEBUI_URL}")
+    if DRY_RUN:
+        print("🔍 DRY RUN 模式，不会实际创建技能\n")
+    else:
+        print("")
+    
+    # 获取 auth token
+    if not DRY_RUN:
+        print("🔐 获取认证 token...")
+        token = get_auth_token()
+        if not token:
+            print("❌ 无法获取 token，退出")
+            return
+        print(f"✅ Token 获取成功\n")
+    
+    # 扫描技能目录
+    skills_dir = SKILLS_DIR
+    if not skills_dir.exists():
+        print(f"❌ 技能目录不存在: {skills_dir}")
+        return
+    
+    # 遍历所有子目录
+    skill_dirs = [d for d in skills_dir.iterdir() if d.is_dir()]
+    print(f"📊 找到 {len(skill_dirs)} 个技能目录\n")
+    
+    success_count = 0
+    skip_count = 0
+    error_count = 0
+    
+    for skill_dir in sorted(skill_dirs):
+        # 跳过隐藏目录和以 . 开头的目录
+        if skill_dir.name.startswith('.'):
+            continue
+            
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            print(f"⏭️  {skill_dir.name}: 未找到 SKILL.md，跳过")
+            skip_count += 1
+            continue
+        
+        print(f"📦 处理: {skill_dir.name}")
+        
+        # 解析 SKILL.md
+        skill_data = parse_skill_md(skill_md)
+        if not skill_data:
+            error_count += 1
+            continue
+        
+        print(f"   - 名称: {skill_data['name']}")
+        print(f"   - 描述: {skill_data['description'][:50]}...")
+        
+        if DRY_RUN:
+            print(f"   ✓ DRY RUN，跳过创建\n")
+            success_count += 1
+            continue
+        
+        # 创建技能
+        success, result = create_skill(token, skill_data)
+        if success:
+            print(f"   ✅ 创建成功")
+            success_count += 1
+        else:
+            print(f"   ❌ 创建失败: {result[:100]}")
+            error_count += 1
+        print("")
+    
+    # 汇总
+    print("=" * 50)
+    print(f"✅ 成功: {success_count}")
+    print(f"⏭️  跳过: {skip_count}")
+    print(f"❌ 失败: {error_count}")
+    print("=" * 50)
+
+if __name__ == "__main__":
+    main()
