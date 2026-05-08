@@ -31,14 +31,15 @@
 	import UserGroup from '$lib/components/icons/UserGroup.svelte';
 	import SignOut from '$lib/components/icons/SignOut.svelte';
 	import FaceSmile from '$lib/components/icons/FaceSmile.svelte';
-	import UserStatusModal from './UserStatusModal.svelte';
-	import Emoji from '$lib/components/common/Emoji.svelte';
-	import XMark from '$lib/components/icons/XMark.svelte';
-	import Note from '$lib/components/icons/Note.svelte';
-	import Pin from '$lib/components/icons/Pin.svelte';
-	import PinSlash from '$lib/components/icons/PinSlash.svelte';
-	import { updateUserStatus, updateUserSettings } from '$lib/apis/users';
-	import { toast } from 'svelte-sonner';
+import UserStatusModal from './UserStatusModal.svelte';
+import Emoji from '$lib/components/common/Emoji.svelte';
+import XMark from '$lib/components/icons/XMark.svelte';
+import Note from '$lib/components/icons/Note.svelte';
+import Pin from '$lib/components/icons/Pin.svelte';
+import PinSlash from '$lib/components/icons/PinSlash.svelte';
+import { updateUserStatus, updateUserSettings } from '$lib/apis/users';
+import { toast } from 'svelte-sonner';
+import AuthModal from '$lib/components/common/AuthModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -54,9 +55,12 @@
 	export let showActiveUsers = true;
 
 	let showUserStatusModal = false;
+	let showAuthModal = false;
 	let shiftKey = false;
 
 	const dispatch = createEventDispatcher();
+
+	$: isGuest = $user?.email === 'guest@localhost';
 
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
 
@@ -114,6 +118,12 @@
 	bind:show={showUserStatusModal}
 	onSave={async () => {
 		user.set(await getSessionUser(localStorage.token));
+	}}
+/>
+<AuthModal
+	bind:show={showAuthModal}
+	on:success={async (e) => {
+		show = false;
 	}}
 />
 
@@ -618,25 +628,43 @@
 				</button>
 			{/if}
 
-			<hr class=" border-gray-50/30 dark:border-gray-800/30 my-1 p-0" />
+		<hr class=" border-gray-50/30 dark:border-gray-800/30 my-1 p-0" />
 
+		{#if isGuest}
 			<button
 				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer select-none"
 				type="button"
-				on:click={async () => {
-					const res = await userSignOut();
-					user.set(null);
-					localStorage.removeItem('token');
-
-					location.href = res?.redirect_url ?? '/auth';
+				on:click={() => {
 					show = false;
+					showAuthModal = true;
 				}}
 			>
 				<div class=" self-center mr-3">
-					<SignOut className="w-5 h-5" strokeWidth="1.5" />
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+					</svg>
 				</div>
-				<div class=" self-center truncate">{$i18n.t('Sign Out')}</div>
+				<div class=" self-center truncate">{$i18n.t('Sign In')}</div>
 			</button>
+		{/if}
+
+		<button
+			class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer select-none"
+			type="button"
+			on:click={async () => {
+				const res = await userSignOut();
+				user.set(null);
+				localStorage.removeItem('token');
+
+				location.href = res?.redirect_url ?? '/auth';
+				show = false;
+			}}
+		>
+			<div class=" self-center mr-3">
+				<SignOut className="w-5 h-5" strokeWidth="1.5" />
+			</div>
+			<div class=" self-center truncate">{$i18n.t('Sign Out')}</div>
+		</button>
 
 			{#if showActiveUsers && ($config?.features?.enable_public_active_users_count || role === 'admin') && usage}
 				{#if usage?.user_count}
