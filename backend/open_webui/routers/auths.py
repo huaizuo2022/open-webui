@@ -143,7 +143,10 @@ async def create_session_response(
         )
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
-    credit = await get_credit_session(user.id)
+    try:
+        credit = await get_credit_session(user.id)
+    except Exception:
+        credit = CreditSession(balance=0, free_chat_used=0, free_chat_limit=0)
 
     return {
         'token': token,
@@ -240,7 +243,10 @@ async def get_session_user(
         )
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
-    credit = await get_credit_session(user.id)
+    try:
+        credit = await get_credit_session(user.id)
+    except Exception:
+        credit = CreditSession(balance=0, free_chat_used=0, free_chat_limit=0)
 
     return {
         'token': token,
