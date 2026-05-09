@@ -7,7 +7,7 @@ from typing import AsyncIterator, Literal
 from fastapi import HTTPException, Request
 
 from open_webui.models.credits import CreditSession, CreditSummary, CreditTransactionCreateForm, Credits
-from open_webui.utils.device_id import resolve_billing_subject
+from open_webui.utils.device_id import resolve_billing_subject, is_guest_user
 
 
 class InsufficientCreditError(HTTPException):
@@ -160,7 +160,9 @@ async def reserve_chat_allowance_from_request(
             raise MissingModelCreditCostError()
 
         return await reserve_chat_allowance(subject_type, subject_id, user_id, model_id, int(credit_cost))
-    except HTTPException:
+    except HTTPException as e:
+        if is_guest_user(user):
+            return None
         raise
     except Exception:
         # Billing tables/config are optional in this local anonymous project.
