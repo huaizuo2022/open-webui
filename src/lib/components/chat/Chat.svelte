@@ -1795,15 +1795,9 @@
 				scrollToBottom();
 			}
 
-			// Fire-and-forget: run chatCompletedHandler for background work
-			// (outlet filters, chat save, title gen, follow-ups, tags)
-			// without blocking the user from sending new messages.
-			chatCompletedHandler(
-				chatId,
-				message.model,
-				message.id,
-				createMessagesList(history, message.id)
-			);
+			// Backend already runs outlet/background processing inline.
+			// Avoid the legacy /api/chat/completed round-trip because it can
+			// raise stale "messages" errors for non-standard response paths.
 
 			// Process next queued request if any
 			await processNextInQueue(chatId);
