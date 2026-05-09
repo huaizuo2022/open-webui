@@ -512,8 +512,9 @@ def detect_company_resource_route(user_message: str) -> Optional[dict]:
     return None
 
 
-def extract_user_message_text(form_data: dict) -> str:
-    user_message = form_data.get('user_message') or form_data.get('parent_message')
+def extract_user_message_text(form_data: dict, metadata: Optional[dict] = None) -> str:
+    metadata = metadata or {}
+    user_message = metadata.get('user_message') or form_data.get('user_message') or form_data.get('parent_message')
     if isinstance(user_message, dict):
         content = user_message.get('content')
         if isinstance(content, str):
@@ -1851,7 +1852,7 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
-            forced_company_route = detect_company_resource_route(extract_user_message_text(form_data))
+            forced_company_route = detect_company_resource_route(extract_user_message_text(form_data, metadata))
             if forced_company_route:
                 tool_result = await execute_internal_skill_request(
                     skill_id=forced_company_route['skill_id'],
