@@ -677,6 +677,7 @@ async def execute_code(
     __chat_id__: str = None,
     __message_id__: str = None,
     __metadata__: dict = None,
+    __code_interpreter_engine__: str = None,
 ) -> str:
     """
     Execute Python code in a sandboxed environment and return the output.
@@ -723,7 +724,7 @@ async def execute_code(
             )
             code = blocking_code + '\n' + code
 
-        engine = getattr(__request__.app.state.config, 'CODE_INTERPRETER_ENGINE', 'pyodide')
+        engine = __code_interpreter_engine__ or getattr(__request__.app.state.config, 'CODE_INTERPRETER_ENGINE', 'pyodide')
         if engine == 'pyodide':
             # Execute via frontend pyodide using bidirectional event call
             if __event_call__ is None:

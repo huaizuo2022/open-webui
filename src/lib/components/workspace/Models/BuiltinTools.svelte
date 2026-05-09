@@ -39,9 +39,13 @@
 			label: $i18n.t('Image Generation'),
 			description: $i18n.t('Generate and edit images')
 		},
-		code_interpreter: {
-			label: $i18n.t('Code Interpreter'),
-			description: $i18n.t('Execute code')
+		code_interpreter_pyodide: {
+			label: $i18n.t('Code Interpreter (Pyodide)'),
+			description: $i18n.t('Execute code using Pyodide (browser-based Python)')
+		},
+		code_interpreter_jupyter: {
+			label: $i18n.t('Code Interpreter (Jupyter)'),
+			description: $i18n.t('Execute code using Jupyter kernel')
 		},
 		tasks: {
 			label: $i18n.t('Task Management'),

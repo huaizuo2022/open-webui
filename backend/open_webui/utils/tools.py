@@ -517,7 +517,7 @@ async def get_builtin_tools(
     ):
         builtin_functions.append(edit_image)
 
-    # Add code interpreter tool if builtin category enabled AND enabled globally AND model has code_interpreter capability
+    # Add code interpreter tools if builtin category enabled AND enabled globally AND model has code_interpreter capability
     if (
         is_builtin_tool_enabled('code_interpreter')
         and getattr(request.app.state.config, 'ENABLE_CODE_INTERPRETER', True)
@@ -525,7 +525,18 @@ async def get_builtin_tools(
         and features.get('code_interpreter')
         and await has_user_permission('code_interpreter')
     ):
-        builtin_functions.append(execute_code)
+        from functools import partial
+
+        # Add Pyodide code interpreter
+        pyodide_func = partial(execute_code, __code_interpreter_engine__='pyodide')
+        pyodide_func.__name__ = 'execute_code_pyodide'
+        builtin_functions.append(pyodide_func)
+
+        # Add Jupyter code interpreter (only if jupyter is configured)
+        if getattr(request.app.state.config, 'CODE_INTERPRETER_JUPYTER_URL', ''):
+            jupyter_func = partial(execute_code, __code_interpreter_engine__='jupyter')
+            jupyter_func.__name__ = 'execute_code_jupyter'
+            builtin_functions.append(jupyter_func)
 
     # Notes tools - search, view, create, and update user's notes
     if (
