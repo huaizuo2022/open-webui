@@ -1874,6 +1874,11 @@ async def chat_completion(
                         forced_company_route['skill_id'],
                         parsed_result,
                     )
+                    forced_form_data = {
+                        **form_data,
+                        'messages': form_data.get('messages', []),
+                    }
+                    forced_tasks = None
                     log.info(
                         'Forced company route completed: skill=%s chat_id=%s message_id=%s content_len=%s',
                         forced_company_route.get('skill_id'),
@@ -1911,7 +1916,15 @@ async def chat_completion(
                             form_data['model'],
                             message=formatted_message,
                         )
-                    ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, [])
+                    ctx = await build_chat_response_context(
+                        request,
+                        forced_form_data,
+                        user,
+                        model,
+                        metadata,
+                        forced_tasks,
+                        [],
+                    )
                     return await process_chat_response(response, ctx)
 
             form_data, metadata, events = await process_chat_payload(request, form_data, user, metadata, model)
