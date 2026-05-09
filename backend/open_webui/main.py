@@ -123,6 +123,8 @@ from open_webui.models.functions import Functions
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats, ChatForm
+from open_webui.tools.builtin import execute_internal_skill_request
+from open_webui.utils.misc import get_last_user_message, openai_chat_completion_message_template
 
 from open_webui.config import (
     # Ollama
@@ -486,6 +488,28 @@ from open_webui.config import (
     reset_config,
     async_reset_config,
 )
+
+
+def detect_company_resource_route(user_message: str) -> Optional[dict]:
+    if not user_message:
+        return None
+
+    text = user_message.lower()
+
+    if 'jira.qima-inc.com' in text or re.search(r'\bonline-\d+\b', text, re.IGNORECASE):
+        return None
+
+    if 'qima.feishu.cn/wiki/' in text:
+        return {'skill_id': 'feishu-wiki-skill', 'request': user_message}
+
+    trace_like = re.search(r'\b[a-z0-9]+(?:-[a-z0-9]+){3,}\b', text)
+    if trace_like and any(keyword in text for keyword in ('天网', '日志', 'traceid', 'trace id', '报错')):
+        return {'skill_id': 'zan-log-query', 'request': user_message}
+
+    if trace_like and re.search(r'\b[a-z][a-z0-9]+(?:-[a-z0-9]+)+\b', text):
+        return {'skill_id': 'zan-log-query', 'request': user_message}
+
+    return None
 from open_webui.env import (
     ENABLE_CUSTOM_MODEL_FALLBACK,
     LICENSE_KEY,
@@ -1813,6 +1837,26 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
+            forced_company_route = detect_company_resource_route(get_last_user_message(form_data.get('messages', [])) or '')
+            if forced_company_route:
+                tool_result = await execute_internal_skill_request(
+                    skill_id=forced_company_route['skill_id'],
+                    request=forced_company_route['request'],
+                )
+                parsed_result = tool_result
+                try:
+                    parsed_result = json.loads(tool_result)
+                except Exception:
+                    pass
+
+                if isinstance(parsed_result, dict) and not parsed_result.get('error'):
+                    response = openai_chat_completion_message_template(
+                        form_data['model'],
+                        message=json.dumps(parsed_result, ensure_ascii=False, indent=2),
+                    )
+                    ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, [])
+                    return await process_chat_response(response, ctx)
+
             form_data, metadata, events = await process_chat_payload(request, form_data, user, metadata, model)
 
             response = await chat_completion_handler(request, form_data, user)
