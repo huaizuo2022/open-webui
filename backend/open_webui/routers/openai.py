@@ -26,6 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from open_webui.internal.db import get_async_session
 
 from open_webui.models.models import Models
+from open_webui.utils.billing import (
+    confirm_chat_allowance,
+    reserve_chat_allowance_from_request,
+    rollback_chat_allowance,
+    wrap_streaming_response_for_billing,
+)
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.groups import Groups
 from open_webui.utils.access_control import has_connection_access, check_model_access
@@ -1191,6 +1197,9 @@ async def generate_chat_completion(
     r = None
     streaming = False
     response = None
+    reservation = None
+
+    reservation = await reserve_chat_allowance_from_request(request, user, form_data, model_info)
 
     try:
         session = await get_session()
@@ -1228,7 +1237,11 @@ async def generate_chat_completion(
 
             streaming = True
             return StreamingResponse(
-                stream_wrapper(r, content_handler=stream_chunks_handler),
+                wrap_streaming_response_for_billing(
+                    stream_wrapper(r, content_handler=stream_chunks_handler),
+                    reservation,
+                    chat_id=metadata.get('chat_id') if metadata else None,
+                ),
                 status_code=r.status,
                 headers=_clean_proxy_headers(r.headers),
             )
@@ -1240,6 +1253,8 @@ async def generate_chat_completion(
                 response = await r.text()
 
             if r.status >= 400:
+                if reservation is not None:
+                    await rollback_chat_allowance(reservation, reason=f'provider_http_{r.status}')
                 if isinstance(response, (dict, list)):
                     return JSONResponse(status_code=r.status, content=response)
                 else:
@@ -1249,9 +1264,19 @@ async def generate_chat_completion(
             if is_responses and isinstance(response, dict):
                 response = convert_responses_result(response)
 
+            if isinstance(response, dict):
+                choices = response.get('choices', [])
+                if choices and isinstance(choices[0], dict):
+                    message = choices[0].setdefault('message', {'role': 'assistant'})
+                    if not message.get('content'):
+                        message['content'] = '未生成可展示内容。请基于上一条结果继续提炼结论。'
+
+            await confirm_chat_allowance(reservation, chat_id=metadata.get('chat_id') if metadata else None)
             return response
     except Exception as e:
         log.exception(e)
+        if reservation is not None:
+            await rollback_chat_allowance(reservation, reason='chat_failed')
 
         raise HTTPException(
             status_code=r.status if r else 500,
