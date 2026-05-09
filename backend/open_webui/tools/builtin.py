@@ -10,7 +10,11 @@ import json
 import logging
 import time
 import asyncio
+import os
+from pathlib import Path
 from typing import Optional
+
+import anyio.to_thread
 
 from fastapi import Request
 
@@ -43,10 +47,67 @@ from open_webui.utils.sanitize import sanitize_code
 log = logging.getLogger(__name__)
 
 MAX_KNOWLEDGE_BASE_SEARCH_ITEMS = 10_000
+LOCAL_COMMAND_TIMEOUT_SECONDS = 120
 
 # =============================================================================
 # TIME UTILITIES
 # =============================================================================
+
+
+async def run_local_command(
+    command: str,
+    cwd: Optional[str] = None,
+    timeout_seconds: int = LOCAL_COMMAND_TIMEOUT_SECONDS,
+    __request__: Request = None,
+    __user__: dict = None,
+) -> str:
+    """
+    Run a shell command on the local machine that hosts this Open WebUI instance.
+    Use this for trusted internal workflows that need direct access to company CLI tools,
+    local skills, logs, or browser-backed automation already available on this machine.
+
+    :param command: Shell command to execute locally.
+    :param cwd: Optional working directory. Defaults to the current workspace root.
+    :param timeout_seconds: Command timeout in seconds. Default 120.
+    :return: JSON with command, cwd, exit_code, stdout, stderr.
+    """
+    workspace_root = Path.cwd()
+    target_cwd = Path(cwd).expanduser() if cwd else workspace_root
+    target_cwd = target_cwd.resolve()
+
+    def _run() -> dict:
+        import subprocess
+
+        completed = subprocess.run(
+            command,
+            shell=True,
+            cwd=str(target_cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=os.environ.copy(),
+        )
+        return {
+            'command': command,
+            'cwd': str(target_cwd),
+            'exit_code': completed.returncode,
+            'stdout': completed.stdout,
+            'stderr': completed.stderr,
+        }
+
+    try:
+        result = await anyio.to_thread.run_sync(_run)
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'run_local_command error: {e}')
+        return json.dumps(
+            {
+                'command': command,
+                'cwd': str(target_cwd),
+                'error': str(e),
+            },
+            ensure_ascii=False,
+        )
 
 
 async def get_current_timestamp(

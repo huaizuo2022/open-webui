@@ -61,6 +61,7 @@ from open_webui.tools.builtin import (
     generate_image,
     edit_image,
     execute_code,
+    run_local_command,
     search_memories,
     add_memory,
     replace_memory_content,
@@ -427,6 +428,10 @@ async def get_builtin_tools(
     # Time utilities - available for date calculations
     if is_builtin_tool_enabled('time'):
         builtin_functions.extend([get_current_timestamp, calculate_timestamp])
+
+    # Local machine execution for self-hosted internal workflows
+    if is_builtin_tool_enabled('local_command'):
+        builtin_functions.append(run_local_command)
 
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files

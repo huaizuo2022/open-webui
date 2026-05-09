@@ -15,6 +15,7 @@ import html
 import inspect
 import re
 import ast
+from pathlib import Path
 
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -144,6 +145,57 @@ from open_webui.constants import TASKS
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
+
+
+SKILL_TRIGGER_RULES = [
+    (('飞书 wiki', '读取飞书文档', '飞书文档', 'docx', 'bitable', 'wiki'), 'feishu-wiki-skill'),
+    (('天网日志', 'traceid', '查报错', '查日志'), 'zan-log-query'),
+    (('httpgateway', '网关日志', 'http 网关日志'), 'zan-kibana-query'),
+    (('redis', '缓存'), 'zan-redis-query'),
+    (('mysql', 'rds', 'sql', '查表'), 'zan-rds-ops'),
+    (('apollo', '配置项'), 'zan-apollo-query'),
+    (('dubbo invoke', 'dubbo 查询', '调用 dubbo', '联调接口'), 'zan-dubbo-invoke'),
+    (('dubbo 接口归属', '查接口对应应用', 'dubbo 服务归属'), 'zan-dubbo-query-app'),
+    (('es 数据', 'elasticsearch', 'trace_id 查询es'), 'zan-es-query'),
+    (('hbase', 'rowkey'), 'zan-hbase-query'),
+    (('用户行为', '埋点', '行为轨迹'), 'zan-user-behavior-query'),
+    (('hive', 'spark sql', 'dp 平台', '数据血缘'), 'zan-dp-platform'),
+    (('jira', 'online-'), 'zan-jira'),
+    (('xiaolv', '效能平台'), 'xiaolv-skill'),
+    (('ops token', 'ops cookie', '获取ops token'), 'ops-cookie'),
+]
+
+
+def load_workspace_agents_md() -> str:
+    agents_path = Path.cwd() / 'AGENTS.md'
+    if not agents_path.exists():
+        return ''
+    try:
+        return agents_path.read_text(encoding='utf-8').strip()
+    except Exception as e:
+        log.debug(f'Failed to load AGENTS.md: {e}')
+        return ''
+
+
+async def auto_select_skill_ids_from_messages(messages: list[dict], user_id: str) -> set[str]:
+    text = '\n'.join([part for message in messages for part in _get_text_parts(message)]).lower()
+    if not text:
+        return set()
+
+    matched_ids: set[str] = set()
+    try:
+        from open_webui.models.skills import Skills as SkillsModel
+
+        accessible_skills = await SkillsModel.get_skills_by_user_id(user_id, 'read')
+        accessible_skill_ids = {skill.id for skill in accessible_skills}
+
+        for keywords, skill_id in SKILL_TRIGGER_RULES:
+            if any(keyword.lower() in text for keyword in keywords) and skill_id in accessible_skill_ids:
+                matched_ids.add(skill_id)
+    except Exception as e:
+        log.debug(f'Failed to auto select skills: {e}')
+
+    return matched_ids
 
 
 # We believe in one maker of all models, seen and unseen,
@@ -2301,6 +2353,14 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Process messages with OR-aligned output items for clean LLM messages
     form_data['messages'] = process_messages_with_output(form_data.get('messages', []))
 
+    agents_instructions = load_workspace_agents_md()
+    if agents_instructions:
+        form_data['messages'] = add_or_update_system_message(
+            f'Instructions from: {Path.cwd() / "AGENTS.md"}\n{agents_instructions}',
+            form_data['messages'],
+            append=True,
+        )
+
     system_message = get_system_message(form_data.get('messages', []))
     if system_message:  # Chat Controls/User Settings
         try:
@@ -2515,6 +2575,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # persisted chats work without relying on the frontend to send skill_ids.
     user_skill_ids = set(form_data.pop('skill_ids', None) or [])
     user_skill_ids |= extract_skill_ids_from_messages(form_data.get('messages', []))
+    user_skill_ids |= await auto_select_skill_ids_from_messages(form_data.get('messages', []), user.id)
     model_skill_ids = set(model.get('info', {}).get('meta', {}).get('skillIds', []))
 
     all_skill_ids = user_skill_ids | model_skill_ids
@@ -2794,6 +2855,21 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             # Add file context to user messages
             chat_id = metadata.get('chat_id')
             form_data['messages'] = await add_file_context(form_data.get('messages', []), chat_id, user)
+            builtin_tools = await get_builtin_tools(
+                request,
+                {
+                    **extra_params,
+                    '__event_emitter__': event_emitter,
+                    '__skill_ids__': [s.id for s in available_skills if s.id not in user_skill_ids],
+                },
+                features,
+                model,
+            )
+            for name, tool_dict in builtin_tools.items():
+                if name not in tools_dict:
+                    tools_dict[name] = tool_dict
+
+        if metadata.get('params', {}).get('function_calling') != 'native':
             builtin_tools = await get_builtin_tools(
                 request,
                 {
