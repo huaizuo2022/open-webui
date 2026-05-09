@@ -82,7 +82,7 @@ from open_webui.internal.db import get_async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions, has_permission
-from open_webui.utils.billing import get_credit_session
+from open_webui.utils.billing import get_credit_session_for_request
 from open_webui.utils.groups import apply_default_group_assignment
 
 from open_webui.utils.redis import get_redis_client
@@ -144,7 +144,7 @@ async def create_session_response(
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
     try:
-        credit = await get_credit_session(user.id)
+        credit = await get_credit_session_for_request(request, user)
     except Exception:
         credit = CreditSession(balance=0, free_chat_used=0, free_chat_limit=0)
 
@@ -244,7 +244,7 @@ async def get_session_user(
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
     try:
-        credit = await get_credit_session(user.id)
+        credit = await get_credit_session_for_request(request, user)
     except Exception:
         credit = CreditSession(balance=0, free_chat_used=0, free_chat_limit=0)
 

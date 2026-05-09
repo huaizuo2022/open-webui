@@ -1853,6 +1853,12 @@ async def chat_completion(
         try:
             forced_company_route = detect_company_resource_route(extract_user_message_text(form_data, metadata))
             if forced_company_route:
+                log.info(
+                    'Forced company route matched: skill=%s chat_id=%s message_id=%s',
+                    forced_company_route.get('skill_id'),
+                    metadata.get('chat_id'),
+                    metadata.get('message_id'),
+                )
                 tool_result = await execute_internal_skill_request(
                     skill_id=forced_company_route['skill_id'],
                     request=forced_company_route['request'],
@@ -1868,14 +1874,24 @@ async def chat_completion(
                         forced_company_route['skill_id'],
                         parsed_result,
                     )
+                    log.info(
+                        'Forced company route completed: skill=%s chat_id=%s message_id=%s content_len=%s',
+                        forced_company_route.get('skill_id'),
+                        metadata.get('chat_id'),
+                        metadata.get('message_id'),
+                        len(formatted_message),
+                    )
                     if metadata.get('chat_id') and metadata.get('message_id') and not metadata['chat_id'].startswith('local:'):
                         await Chats.upsert_message_to_chat_by_id_and_message_id(
                             metadata['chat_id'],
                             metadata['message_id'],
                             {
+                                'id': metadata['message_id'],
+                                'parentId': metadata.get('user_message_id', None),
                                 'done': True,
                                 'role': 'assistant',
                                 'content': formatted_message,
+                                'model': form_data['model'],
                                 'sources': [
                                     {
                                         'source': {
