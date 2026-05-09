@@ -26,6 +26,7 @@ from open_webui.models.users import (
     UpdateProfileForm,
     UserStatus,
 )
+from open_webui.models.credits import CreditSession
 from open_webui.models.groups import Groups
 from open_webui.models.oauth_sessions import OAuthSessions
 
@@ -81,6 +82,7 @@ from open_webui.internal.db import get_async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions, has_permission
+from open_webui.utils.billing import get_credit_session
 from open_webui.utils.groups import apply_default_group_assignment
 
 from open_webui.utils.redis import get_redis_client
@@ -141,6 +143,7 @@ async def create_session_response(
         )
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
+    credit = await get_credit_session(user.id)
 
     return {
         'token': token,
@@ -152,6 +155,7 @@ async def create_session_response(
         'role': user.role,
         'profile_image_url': f'/api/v1/users/{user.id}/profile/image',
         'permissions': user_permissions,
+        'credit': credit.model_dump(),
     }
 
 
@@ -163,6 +167,7 @@ async def create_session_response(
 class SessionUserResponse(Token, UserProfileImageResponse):
     expires_at: Optional[int] = None
     permissions: Optional[dict] = None
+    credit: Optional[CreditSession] = None
 
 
 class SessionUserInfoResponse(SessionUserResponse, UserStatus):
@@ -235,6 +240,7 @@ async def get_session_user(
         )
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
+    credit = await get_credit_session(user.id)
 
     return {
         'token': token,
@@ -252,6 +258,7 @@ async def get_session_user(
         'status_message': user.status_message,
         'status_expires_at': user.status_expires_at,
         'permissions': user_permissions,
+        'credit': credit.model_dump(),
     }
 
 

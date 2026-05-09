@@ -106,6 +106,8 @@ from open_webui.routers import (
     terminals,
     automations,
     calendar,
+    credits,
+    admin_credits,
 )
 
 from open_webui.routers.retrieval import (
@@ -1421,6 +1423,8 @@ app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
 app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
+app.include_router(credits.router, prefix='/api/v1/credits', tags=['credits'])
+app.include_router(admin_credits.router, prefix='/api/v1/admin', tags=['admin-credits'])
 
 
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
@@ -1864,6 +1868,26 @@ async def chat_completion(
                         forced_company_route['skill_id'],
                         parsed_result,
                     )
+                    if metadata.get('chat_id') and metadata.get('message_id') and not metadata['chat_id'].startswith('local:'):
+                        await Chats.upsert_message_to_chat_by_id_and_message_id(
+                            metadata['chat_id'],
+                            metadata['message_id'],
+                            {
+                                'done': True,
+                                'role': 'assistant',
+                                'content': formatted_message,
+                                'sources': [
+                                    {
+                                        'source': {
+                                            'name': f"forced-route:{forced_company_route['skill_id']}",
+                                        },
+                                        'document': [formatted_message],
+                                        'metadata': [parsed_result],
+                                        'tool_result': True,
+                                    }
+                                ],
+                            },
+                        )
                     if form_data.get('stream'):
                         response = build_forced_route_stream_response(form_data['model'], formatted_message)
                     else:
