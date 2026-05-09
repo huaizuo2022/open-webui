@@ -510,6 +510,20 @@ def detect_company_resource_route(user_message: str) -> Optional[dict]:
         return {'skill_id': 'zan-log-query', 'request': user_message}
 
     return None
+
+
+def extract_user_message_text(form_data: dict) -> str:
+    user_message = form_data.get('user_message') or form_data.get('parent_message')
+    if isinstance(user_message, dict):
+        content = user_message.get('content')
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts = [part.get('text', '') for part in content if isinstance(part, dict) and part.get('type') == 'text']
+            if text_parts:
+                return '\n'.join([part for part in text_parts if part])
+
+    return get_last_user_message(form_data.get('messages', [])) or ''
 from open_webui.env import (
     ENABLE_CUSTOM_MODEL_FALLBACK,
     LICENSE_KEY,
@@ -1837,7 +1851,7 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
-            forced_company_route = detect_company_resource_route(get_last_user_message(form_data.get('messages', [])) or '')
+            forced_company_route = detect_company_resource_route(extract_user_message_text(form_data))
             if forced_company_route:
                 tool_result = await execute_internal_skill_request(
                     skill_id=forced_company_route['skill_id'],
