@@ -45,6 +45,12 @@ from open_webui.internal.db import get_async_session
 
 
 from open_webui.models.models import Models
+from open_webui.utils.billing import (
+    confirm_chat_allowance,
+    reserve_chat_allowance_from_request,
+    rollback_chat_allowance,
+    wrap_streaming_response_for_billing,
+)
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.groups import Groups
 from open_webui.utils.access_control import check_model_access
@@ -1112,6 +1118,7 @@ async def generate_chat_completion(
 
     model_id = payload['model']
     model_info = await Models.get_model_by_id(model_id)
+    reservation = None
 
     if model_info:
         if model_info.base_model_id:
@@ -1143,15 +1150,40 @@ async def generate_chat_completion(
     if prefix_id:
         payload['model'] = payload['model'].replace(f'{prefix_id}.', '')
 
-    return await send_request(
-        f'{url}/api/chat',
-        payload=json.dumps(payload),
-        key=get_api_key(url_idx, url, request.app.state.config.OLLAMA_API_CONFIGS),
-        user=user,
-        stream=form_data.stream,
-        content_type='application/x-ndjson',
-        metadata=metadata,
-    )
+    reservation = await reserve_chat_allowance_from_request(request, user, payload, model_info)
+    try:
+        response = await send_request(
+            f'{url}/api/chat',
+            payload=json.dumps(payload),
+            key=get_api_key(url_idx, url, request.app.state.config.OLLAMA_API_CONFIGS),
+            user=user,
+            stream=form_data.stream,
+            content_type='application/x-ndjson',
+            metadata=metadata,
+        )
+        if isinstance(response, HTTPException):
+            if reservation is not None:
+                await rollback_chat_allowance(reservation, reason='provider_http_error')
+            raise response
+        status_code = getattr(response, 'status_code', None)
+        if status_code is not None and status_code >= 400:
+            if reservation is not None:
+                await rollback_chat_allowance(reservation, reason=f'provider_http_{status_code}')
+            return response
+        if isinstance(response, StreamingResponse):
+            response.body_iterator = wrap_streaming_response_for_billing(
+                response.body_iterator,
+                reservation,
+                chat_id=metadata.get('chat_id') if metadata else None,
+            )
+            return response
+
+        await confirm_chat_allowance(reservation, chat_id=metadata.get('chat_id') if metadata else None)
+        return response
+    except Exception:
+        if reservation is not None:
+            await rollback_chat_allowance(reservation, reason='chat_failed')
+        raise
 
 
 # TODO: we should update this part once Ollama supports other types

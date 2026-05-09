@@ -1,4 +1,5 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+import { getDeviceHeaders } from '$lib/apis/device';
 export { getBackendConfig } from '$lib/apis/index';
 
 export const getAdminDetails = async (token: string) => {
@@ -90,7 +91,8 @@ export const getSessionUser = async (token: string) => {
 		method: 'GET',
 		headers: {
 			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
+			Authorization: `Bearer ${token}`,
+			...getDeviceHeaders()
 		},
 		credentials: 'include'
 	})

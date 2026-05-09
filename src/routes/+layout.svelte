@@ -3,6 +3,7 @@
 	import { spring } from 'svelte/motion';
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
 	import { Toaster, toast } from 'svelte-sonner';
+	import { getDeviceId } from '$lib/apis/device';
 
 	let loadingProgress = spring(0, {
 		stiffness: 0.05
@@ -942,6 +943,7 @@
 		handleVisibilityChange();
 
 		theme.set(localStorage.theme);
+		getDeviceId();
 
 		mobile.set(window.innerWidth < BREAKPOINT);
 

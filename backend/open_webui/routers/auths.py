@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import re
 import uuid
 import time
@@ -143,10 +144,9 @@ async def create_session_response(
         )
 
     user_permissions = await get_permissions(user.id, request.app.state.config.USER_PERMISSIONS, db=db)
-    try:
+    credit = CreditSession(balance=0, free_chat_used=0, free_chat_limit=0)
+    with contextlib.suppress(Exception):
         credit = await get_credit_session_for_request(request, user)
-    except Exception:
-        credit = CreditSession(balance=0, free_chat_used=0, free_chat_limit=0)
 
     return {
         'token': token,

@@ -17,6 +17,7 @@ export const WEBUI_DEPLOYMENT_ID = writable(null);
 
 export const config: Writable<Config | undefined> = writable(undefined);
 export const user: Writable<SessionUser | undefined> = writable(undefined);
+export const redeemCodeModal = writable(false);
 
 // Electron App
 export const isApp = writable(false);
@@ -331,4 +332,18 @@ export type SessionUser = {
 	name: string;
 	role: string;
 	profile_image_url: string;
+	token?: string;
+	token_type?: string;
+	expires_at?: number | null;
+	bio?: string | null;
+	gender?: string | null;
+	date_of_birth?: string | null;
+	status_emoji?: string | null;
+	status_message?: string | null;
+	status_expires_at?: number | null;
+	credit?: {
+		balance: number;
+		free_chat_used: number;
+		free_chat_limit: number;
+	} | null;
 };

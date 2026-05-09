@@ -1,4 +1,9 @@
 import { OPENAI_API_BASE_URL, WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
+import { getDeviceHeaders } from '$lib/apis/device';
+
+const getLocalDeviceHeaders = (url: string) => {
+	return url.startsWith(WEBUI_BASE_URL) ? getDeviceHeaders() : {};
+};
 
 export const getOpenAIConfig = async (token: string = '') => {
 	let error = null;
@@ -343,7 +348,8 @@ export const chatCompletion = async (
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			...getLocalDeviceHeaders(url)
 		},
 		body: JSON.stringify(body)
 	}).catch((err) => {
@@ -370,7 +376,8 @@ export const generateOpenAIChatCompletion = async (
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			...getLocalDeviceHeaders(url)
 		},
 		credentials: 'include',
 		body: JSON.stringify(body)

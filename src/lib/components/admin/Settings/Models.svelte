@@ -650,6 +650,12 @@
 													? `${model.id} (${model?.ollama?.digest})`
 													: model.id}
 										</span>
+
+										{#if model?.meta?.credit_cost !== undefined && model?.meta?.credit_cost !== null}
+											<span class="shrink-0 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300 px-1.5 py-0.5 text-[10px] font-medium">
+												{$i18n.t('Credit Cost')}: {model.meta.credit_cost}
+											</span>
+										{/if}
 									</div>
 								</div>
 							</button>

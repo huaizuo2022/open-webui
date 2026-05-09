@@ -675,6 +675,31 @@
 									/>
 								</div>
 							</div>
+
+							<div class="mb-1">
+								<div class="text-xs font-medium mb-1 text-gray-500">
+									{$i18n.t('Credit Cost')}
+								</div>
+								<div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+									{$i18n.t('Cost in credits for one paid chat request after free chats are exhausted.')}
+								</div>
+								<input
+									type="number"
+									min="0"
+									step="1"
+									class="text-sm w-full bg-transparent outline-hidden rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-2"
+									placeholder={$i18n.t('Leave empty to require free chats only')}
+									value={info?.meta?.credit_cost ?? ''}
+									on:input={(event) => {
+										const value = event.currentTarget.value;
+										if (value === '') {
+											delete info.meta.credit_cost;
+										} else {
+											info.meta.credit_cost = Math.max(0, Number(value));
+										}
+									}}
+								/>
+							</div>
 						</div>
 					</div>
 
