@@ -78,7 +78,7 @@
 		updateChatById,
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
-	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
+	import { generateOpenAIChatCompletion, chatCompletion } from '$lib/apis/openai';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { getAndUpdateUserLocation, getUserSettings } from '$lib/apis/users';
 	import {
@@ -2298,9 +2298,7 @@
 		// Only send terminal_id if the model has terminal capability enabled
 		const terminalEnabled = model.info?.meta?.capabilities?.terminal ?? true;
 
-		const res = await generateOpenAIChatCompletion(
-			localStorage.token,
-			{
+		const requestBody = {
 				stream: stream,
 				model: model.id,
 				...(messages.length > 0 ? { messages } : {}),
@@ -2359,7 +2357,11 @@
 							}
 						}
 					: {})
-			},
+			};
+
+		const [streamRes, controller] = await chatCompletion(
+			localStorage.token,
+			requestBody,
 			`${WEBUI_BASE_URL}/api`
 		).catch(async (error) => {
 			console.log(error);
@@ -2385,33 +2387,68 @@
 			history.messages[responseMessageId] = responseMessage;
 			history.currentId = responseMessageId;
 
-			return null;
-		});
+				return null;
+			});
 
-		if (res) {
-			if (res.error) {
-				await handleOpenAIError(res.error, responseMessage);
-			} else {
-				// Backend returns task_ids (multi-model) or task_id (single model)
-				const newTaskIds = res.task_ids ?? (res.task_id ? [res.task_id] : []);
-				if (taskIds) {
-					taskIds.push(...newTaskIds);
-				} else {
-					taskIds = newTaskIds;
+		if (streamRes && streamRes.ok && streamRes.body) {
+			generationController = controller as AbortController;
+			generating = true;
+			const textStream = await createOpenAITextStream(
+				streamRes.body,
+				Boolean($settings?.splitLargeChunks ?? false)
+			);
+
+			for await (const update of textStream) {
+				const { value, done, sources, error, selectedModelId, usage } = update;
+
+				if (sources && !responseMessage?.sources) {
+					responseMessage.sources = sources;
 				}
 
-				// Backend returns chat_id for new chats — set store + URL.
-				// Only update if the user hasn't navigated to a different chat
-				// while the request was in flight (prevents overwriting $chatId
-				// and causing spurious toast notifications / state duplication).
-				if (res.chat_id && $chatId !== res.chat_id && $chatId === _chatId) {
-					await chatId.set(res.chat_id);
-					if (!$temporaryChatEnabled) {
-						window.history.replaceState(history.state, '', `/c/${res.chat_id}`);
-						currentChatPage.set(1);
-						await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				if (selectedModelId) {
+					responseMessage.selectedModelId = selectedModelId;
+					responseMessage.arena = true;
+				}
+
+				if (usage) {
+					responseMessage.usage = usage;
+				}
+
+				if (error) {
+					await handleOpenAIError(error, responseMessage);
+					generating = false;
+					generationController = null;
+					break;
+				}
+
+				if (done) {
+					responseMessage.done = true;
+					history.messages[responseMessage.id] = responseMessage;
+					generating = false;
+					generationController = null;
+					await tick();
+					if (autoScroll) {
+						scrollToBottom();
 					}
+					await processNextInQueue(_chatId);
+					break;
 				}
+
+				if (responseMessage.content == '' && value == '\n') {
+					continue;
+				}
+
+				responseMessage.content += value;
+				history.messages[responseMessage.id] = responseMessage;
+				await tick();
+				if (autoScroll) {
+					scheduleScrollToBottom();
+				}
+			}
+		} else if (streamRes) {
+			const res = await streamRes.json().catch(() => null);
+			if (res?.error) {
+				await handleOpenAIError(res.error, responseMessage);
 			}
 		}
 
