@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 
 MAX_KNOWLEDGE_BASE_SEARCH_ITEMS = 10_000
 LOCAL_COMMAND_TIMEOUT_SECONDS = 120
-SUPPORTED_INTERNAL_SKILLS = {'zan-log-query', 'feishu-wiki-skill'}
+SUPPORTED_INTERNAL_SKILLS = {'zan-log-query', 'feishu-wiki-skill', 'zan-jira'}
 
 # =============================================================================
 # TIME UTILITIES
@@ -123,6 +123,18 @@ def _extract_app_name(request: str, trace_id: Optional[str]) -> Optional[str]:
         if candidate == trace_id or candidate in stop_words:
             continue
         return candidate
+    return None
+
+
+def _extract_jira_id(request: str) -> Optional[str]:
+    jira_match = re.search(r'\b([A-Z][A-Z0-9]+-\d+)\b', request)
+    if jira_match:
+        return jira_match.group(1)
+
+    jira_url_match = re.search(r'jira\.qima-inc\.com/browse/([A-Z][A-Z0-9]+-\d+)', request, re.IGNORECASE)
+    if jira_url_match:
+        return jira_url_match.group(1).upper()
+
     return None
 
 
@@ -225,6 +237,29 @@ def _execute_internal_skill_request(skill_id: str, request: str, cwd: Path, time
             'doc_token': obj_token,
             'node_result': node_result,
             'raw_result': raw_result,
+        }
+
+    if skill_id == 'zan-jira':
+        jira_id = _extract_jira_id(request)
+        if not jira_id:
+            return {'error': 'No JIRA id detected from request', 'skill_id': skill_id, 'request': request}
+
+        pre_execute = _run_subprocess(
+            'bash /Users/shang/.claude/skills/zan-jira/scripts/pre-execute.sh zan-jira',
+            cwd,
+            timeout_seconds,
+        )
+        view_result = _run_subprocess(
+            f'npx --registry=http://registry.npm.qima-inc.com @youzan/jira-cli view {jira_id}',
+            cwd,
+            timeout_seconds,
+        )
+        return {
+            'skill_id': skill_id,
+            'request': request,
+            'jira_id': jira_id,
+            'pre_execute': pre_execute,
+            'view_result': view_result,
         }
 
     return {'error': f'Unsupported internal skill: {skill_id}', 'skill_id': skill_id, 'request': request}
