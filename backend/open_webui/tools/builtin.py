@@ -11,6 +11,8 @@ import logging
 import time
 import asyncio
 import os
+import re
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +50,7 @@ log = logging.getLogger(__name__)
 
 MAX_KNOWLEDGE_BASE_SEARCH_ITEMS = 10_000
 LOCAL_COMMAND_TIMEOUT_SECONDS = 120
+SUPPORTED_INTERNAL_SKILLS = {'zan-log-query', 'feishu-wiki-skill'}
 
 # =============================================================================
 # TIME UTILITIES
@@ -76,8 +79,6 @@ async def run_local_command(
     target_cwd = target_cwd.resolve()
 
     def _run() -> dict:
-        import subprocess
-
         completed = subprocess.run(
             command,
             shell=True,
@@ -87,6 +88,202 @@ async def run_local_command(
             timeout=timeout_seconds,
             env=os.environ.copy(),
         )
+
+
+def _run_subprocess(command: str, cwd: Path, timeout_seconds: int) -> dict:
+    completed = subprocess.run(
+        command,
+        shell=True,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        env=os.environ.copy(),
+    )
+    return {
+        'command': command,
+        'cwd': str(cwd),
+        'exit_code': completed.returncode,
+        'stdout': completed.stdout,
+        'stderr': completed.stderr,
+    }
+
+
+def _extract_trace_id(request: str) -> Optional[str]:
+    for token in re.findall(r'[A-Za-z0-9_-]+', request):
+        if token.count('-') >= 3 and len(token) >= 20:
+            return token
+    return None
+
+
+def _extract_app_name(request: str, trace_id: Optional[str]) -> Optional[str]:
+    candidates = re.findall(r'\b[a-z][a-z0-9]+(?:-[a-z0-9]+)+\b', request.lower())
+    stop_words = {'trace-id', 'traceid', 'httpgateway'}
+    for candidate in candidates:
+        if candidate == trace_id or candidate in stop_words:
+            continue
+        return candidate
+    return None
+
+
+def _run_lark_cli_json(args: list[str], cwd: Path, timeout_seconds: int) -> dict:
+    completed = subprocess.run(
+        args,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        env=os.environ.copy(),
+    )
+    stdout = completed.stdout.strip()
+    data = None
+    if stdout:
+        try:
+            data = json.loads(stdout)
+        except json.JSONDecodeError:
+            data = stdout
+    return {
+        'command': ' '.join(args),
+        'cwd': str(cwd),
+        'exit_code': completed.returncode,
+        'stdout': completed.stdout,
+        'stderr': completed.stderr,
+        'data': data,
+    }
+
+
+def _execute_internal_skill_request(skill_id: str, request: str, cwd: Path, timeout_seconds: int) -> dict:
+    if skill_id == 'zan-log-query':
+        trace_id = _extract_trace_id(request)
+        app_name = _extract_app_name(request, trace_id)
+
+        if not trace_id:
+            return {'error': 'No trace_id detected from request', 'skill_id': skill_id, 'request': request}
+
+        if app_name:
+            command = (
+                'python3 ~/.agents/skills/zan-log-query/scripts/logs.py '
+                f'--app "{app_name}" --trace-id "{trace_id}"'
+            )
+        else:
+            command = (
+                'python3 ~/.agents/skills/zan-log-query/scripts/logs.py '
+                f'--trace-id "{trace_id}" --full-trace'
+            )
+
+        result = _run_subprocess(command, cwd, timeout_seconds)
+        result['skill_id'] = skill_id
+        result['request'] = request
+        result['trace_id'] = trace_id
+        if app_name:
+            result['app'] = app_name
+        return result
+
+    if skill_id == 'feishu-wiki-skill':
+        wiki_match = re.search(r'qima\.feishu\.cn/wiki/([A-Za-z0-9]+)', request)
+        if not wiki_match:
+            return {'error': 'No wiki token detected from request', 'skill_id': skill_id, 'request': request}
+
+        wiki_token = wiki_match.group(1)
+        node_result = _run_lark_cli_json(
+            [
+                'lark-cli',
+                'wiki',
+                'spaces',
+                'get_node',
+                '--params',
+                json.dumps({'token': wiki_token, 'obj_type': 'wiki'}, ensure_ascii=False),
+            ],
+            cwd,
+            timeout_seconds,
+        )
+        node_data = node_result.get('data') or {}
+        obj_token = (((node_data.get('data') or {}).get('node') or {}).get('obj_token')) if isinstance(node_data, dict) else None
+        if not obj_token:
+            return {
+                'skill_id': skill_id,
+                'request': request,
+                'wiki_token': wiki_token,
+                'node_result': node_result,
+                'error': 'Failed to resolve doc token from wiki',
+            }
+
+        raw_result = _run_lark_cli_json(
+            [
+                'lark-cli',
+                'api',
+                'GET',
+                f'/open-apis/docx/v1/documents/{obj_token}/raw_content',
+            ],
+            cwd,
+            timeout_seconds,
+        )
+        return {
+            'skill_id': skill_id,
+            'request': request,
+            'wiki_token': wiki_token,
+            'doc_token': obj_token,
+            'node_result': node_result,
+            'raw_result': raw_result,
+        }
+
+    return {'error': f'Unsupported internal skill: {skill_id}', 'skill_id': skill_id, 'request': request}
+
+
+async def execute_internal_skill_request(
+    skill_id: str,
+    request: str,
+    cwd: Optional[str] = None,
+    timeout_seconds: int = LOCAL_COMMAND_TIMEOUT_SECONDS,
+    __request__: Request = None,
+    __user__: dict = None,
+) -> str:
+    """
+    Execute a supported internal company skill request directly on this machine.
+    Prefer this tool when the user asks to query internal systems like Tianwang logs or Feishu wiki docs.
+
+    Supported skill ids: zan-log-query, feishu-wiki-skill.
+
+    :param skill_id: Internal skill id to execute.
+    :param request: Original user request text.
+    :param cwd: Optional working directory. Defaults to current workspace root.
+    :param timeout_seconds: Command timeout in seconds. Default 120.
+    :return: JSON result from the adapted internal skill execution.
+    """
+    workspace_root = Path.cwd()
+    target_cwd = Path(cwd).expanduser() if cwd else workspace_root
+    target_cwd = target_cwd.resolve()
+
+    if skill_id not in SUPPORTED_INTERNAL_SKILLS:
+        return json.dumps(
+            {
+                'error': f'Unsupported internal skill: {skill_id}',
+                'supported_skill_ids': sorted(SUPPORTED_INTERNAL_SKILLS),
+            },
+            ensure_ascii=False,
+        )
+
+    try:
+        result = await anyio.to_thread.run_sync(
+            _execute_internal_skill_request,
+            skill_id,
+            request,
+            target_cwd,
+            timeout_seconds,
+        )
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'execute_internal_skill_request error: {e}')
+        return json.dumps(
+            {
+                'skill_id': skill_id,
+                'request': request,
+                'cwd': str(target_cwd),
+                'error': str(e),
+            },
+            ensure_ascii=False,
+        )
+
         return {
             'command': command,
             'cwd': str(target_cwd),

@@ -62,6 +62,7 @@ from open_webui.tools.builtin import (
     edit_image,
     execute_code,
     run_local_command,
+    execute_internal_skill_request,
     search_memories,
     add_memory,
     replace_memory_content,
@@ -432,6 +433,7 @@ async def get_builtin_tools(
     # Local machine execution for self-hosted internal workflows
     if is_builtin_tool_enabled('local_command'):
         builtin_functions.append(run_local_command)
+        builtin_functions.append(execute_internal_skill_request)
 
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
