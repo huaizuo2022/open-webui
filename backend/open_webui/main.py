@@ -124,7 +124,11 @@ from open_webui.models.models import Models
 from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats, ChatForm
 from open_webui.tools.builtin import execute_internal_skill_request
-from open_webui.utils.misc import get_last_user_message, openai_chat_completion_message_template
+from open_webui.utils.misc import (
+    get_last_user_message,
+    openai_chat_completion_message_template,
+    openai_chat_chunk_message_template,
+)
 
 from open_webui.config import (
     # Ollama
@@ -525,6 +529,93 @@ def extract_user_message_text(form_data: dict, metadata: Optional[dict] = None) 
                 return '\n'.join([part for part in text_parts if part])
 
     return get_last_user_message(form_data.get('messages', [])) or ''
+
+
+def _try_parse_json(value):
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
+
+def _truncate(text: str, limit: int = 220) -> str:
+    text = (text or '').strip()
+    return text if len(text) <= limit else f'{text[:limit]}...'
+
+
+def format_company_route_result(skill_id: str, parsed_result: dict) -> str:
+    if skill_id == 'zan-log-query':
+        payload = _try_parse_json(parsed_result.get('stdout', '')) or parsed_result
+        logs = payload.get('logs', []) if isinstance(payload, dict) else []
+        app = payload.get('app') or parsed_result.get('app') or 'unknown'
+        total = payload.get('total') or len(logs)
+        trace_id = parsed_result.get('trace_id') or (logs[0].get('traceId') if logs else None)
+
+        combined_text = '\n'.join(log.get('message', '') for log in logs[:10])
+        order_no_match = re.search(r'E\d{17,}', combined_text)
+        kdt_match = re.search(r'kdtId[=:\\"]+(\d+)', combined_text)
+        amount_match = re.search(r'REAL_PAY_AMOUNT[=:\\"]+(\d+)', combined_text)
+        status_match = re.search(r'orderStatus[=:\\"]+([A-Z_]+)', combined_text)
+
+        lines = [f'已在天网查询到 `app={app}` 的日志，共 `{total}` 条。']
+        if trace_id:
+            lines.append(f'- traceId: `{trace_id}`')
+        if order_no_match:
+            lines.append(f'- 订单号: `{order_no_match.group(0)}`')
+        if kdt_match:
+            lines.append(f'- kdtId: `{kdt_match.group(1)}`')
+        if amount_match:
+            lines.append(f'- 支付金额: `{amount_match.group(1)}` 分')
+        if status_match:
+            lines.append(f'- 订单状态: `{status_match.group(1)}`')
+
+        lines.append('')
+        lines.append('关键信息：')
+        for log_item in logs[:6]:
+            lines.append(
+                f"- `{log_item.get('time', '')}` `{log_item.get('class', '')}`: {_truncate(log_item.get('message', ''))}"
+            )
+
+        return '\n'.join(lines)
+
+    if skill_id == 'feishu-wiki-skill':
+        raw_result = parsed_result.get('raw_result', {}) if isinstance(parsed_result, dict) else {}
+        raw_data = _try_parse_json(raw_result.get('stdout', '')) or raw_result.get('data') or {}
+        content = (((raw_data.get('data') or {}).get('content')) if isinstance(raw_data, dict) else None) or ''
+        title = ''
+        node_result = parsed_result.get('node_result', {}) if isinstance(parsed_result, dict) else {}
+        node_data = _try_parse_json(node_result.get('stdout', '')) or node_result.get('data') or {}
+        if isinstance(node_data, dict):
+            title = (((node_data.get('data') or {}).get('node')) or {}).get('title', '')
+
+        lines = []
+        if title:
+            lines.append(f'飞书文档：`{title}`')
+        if content:
+            lines.append(_truncate(content, 4000))
+        return '\n\n'.join(lines) if lines else '已执行飞书查询，但未解析到可展示内容。'
+
+    if parsed_result.get('stdout'):
+        return _truncate(parsed_result.get('stdout', ''), 4000)
+    return _truncate(json.dumps(parsed_result, ensure_ascii=False), 4000)
+
+
+def build_forced_route_stream_response(model_id: str, message: str) -> StreamingResponse:
+    async def event_stream():
+        for start in range(0, len(message), 160):
+            chunk = message[start : start + 160]
+            payload = openai_chat_chunk_message_template(model_id, content=chunk)
+            yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
+
+        done_payload = openai_chat_chunk_message_template(model_id)
+        yield f'data: {json.dumps(done_payload, ensure_ascii=False)}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    return StreamingResponse(event_stream(), media_type='text/event-stream')
 from open_webui.env import (
     ENABLE_CUSTOM_MODEL_FALLBACK,
     LICENSE_KEY,
@@ -1865,10 +1956,17 @@ async def chat_completion(
                     pass
 
                 if isinstance(parsed_result, dict) and not parsed_result.get('error'):
-                    response = openai_chat_completion_message_template(
-                        form_data['model'],
-                        message=json.dumps(parsed_result, ensure_ascii=False, indent=2),
+                    formatted_message = format_company_route_result(
+                        forced_company_route['skill_id'],
+                        parsed_result,
                     )
+                    if form_data.get('stream'):
+                        response = build_forced_route_stream_response(form_data['model'], formatted_message)
+                    else:
+                        response = openai_chat_completion_message_template(
+                            form_data['model'],
+                            message=formatted_message,
+                        )
                     ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, [])
                     return await process_chat_response(response, ctx)
 
