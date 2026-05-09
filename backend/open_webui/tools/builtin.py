@@ -78,15 +78,18 @@ async def run_local_command(
     target_cwd = Path(cwd).expanduser() if cwd else workspace_root
     target_cwd = target_cwd.resolve()
 
-    def _run() -> dict:
-        completed = subprocess.run(
-            command,
-            shell=True,
-            cwd=str(target_cwd),
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=os.environ.copy(),
+    try:
+        result = await anyio.to_thread.run_sync(_run_subprocess, command, target_cwd, timeout_seconds)
+        return json.dumps(result, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'run_local_command error: {e}')
+        return json.dumps(
+            {
+                'command': command,
+                'cwd': str(target_cwd),
+                'error': str(e),
+            },
+            ensure_ascii=False,
         )
 
 
@@ -277,7 +280,7 @@ async def execute_internal_skill_request(
     Execute a supported internal company skill request directly on this machine.
     Prefer this tool when the user asks to query internal systems like Tianwang logs or Feishu wiki docs.
 
-    Supported skill ids: zan-log-query, feishu-wiki-skill.
+    Supported skill ids: zan-log-query, feishu-wiki-skill, zan-jira.
 
     :param skill_id: Internal skill id to execute.
     :param request: Original user request text.
@@ -313,28 +316,6 @@ async def execute_internal_skill_request(
             {
                 'skill_id': skill_id,
                 'request': request,
-                'cwd': str(target_cwd),
-                'error': str(e),
-            },
-            ensure_ascii=False,
-        )
-
-        return {
-            'command': command,
-            'cwd': str(target_cwd),
-            'exit_code': completed.returncode,
-            'stdout': completed.stdout,
-            'stderr': completed.stderr,
-        }
-
-    try:
-        result = await anyio.to_thread.run_sync(_run)
-        return json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        log.exception(f'run_local_command error: {e}')
-        return json.dumps(
-            {
-                'command': command,
                 'cwd': str(target_cwd),
                 'error': str(e),
             },
