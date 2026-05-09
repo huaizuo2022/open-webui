@@ -66,12 +66,26 @@
 
 	let models = [];
 	let selectedModelIdx = 0;
+	let selectedGroupIdx = 0;
+	let shuffleKey = 0;
 
 	$: if (selectedModels.length > 0) {
 		selectedModelIdx = models.length - 1;
 	}
 
 	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
+
+	$: groupedSuggestions =
+		$config?.default_prompt_suggestion_groups?.filter((group) => group?.prompts?.length > 0) ?? [];
+
+	$: activeSuggestionPrompts =
+		atSelectedModel?.info?.meta?.suggestion_prompts ??
+		models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
+		(groupedSuggestions[selectedGroupIdx]?.prompts ?? $config?.default_prompt_suggestions ?? []);
+
+	$: if (selectedGroupIdx >= groupedSuggestions.length && groupedSuggestions.length > 0) {
+		selectedGroupIdx = 0;
+	}
 </script>
 
 <div class="m-auto w-full max-w-6xl px-2 @2xl:px-20 translate-y-6 py-24 text-center">
@@ -249,11 +263,40 @@
 	{:else}
 		<div class="mx-auto max-w-2xl font-primary mt-2" in:fade={{ duration: 200, delay: 200 }}>
 			<div class="mx-5">
+				{#if !(
+					atSelectedModel?.info?.meta?.suggestion_prompts ??
+					models[selectedModelIdx]?.info?.meta?.suggestion_prompts
+				) && groupedSuggestions.length > 0}
+					<div class="mb-4 flex items-center justify-between gap-4 flex-wrap">
+						<div class="flex items-center gap-2 flex-wrap">
+							{#each groupedSuggestions as group, idx}
+								<button
+									class:selected={selectedGroupIdx === idx}
+									class="rounded-full px-3 py-1.5 text-sm transition border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800"
+									on:click={() => {
+										selectedGroupIdx = idx;
+										shuffleKey += 1;
+									}}
+								>
+									{group.label}
+								</button>
+							{/each}
+						</div>
+
+						<button
+							class="rounded-full px-3 py-1.5 text-sm transition text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+							on:click={() => {
+								shuffleKey += 1;
+							}}
+						>
+							{$i18n.t('Refresh')} · 换一组
+						</button>
+					</div>
+				{/if}
+
 				<Suggestions
-					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-						$config?.default_prompt_suggestions ??
-						[]}
+					suggestionPrompts={activeSuggestionPrompts}
+					{shuffleKey}
 					inputValue={prompt}
 					{onSelect}
 				/>
@@ -261,3 +304,17 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	.selected {
+		background: rgba(17, 24, 39, 0.08);
+		color: rgb(17, 24, 39);
+		border-color: rgba(17, 24, 39, 0.08);
+	}
+
+	:global(.dark) .selected {
+		background: rgba(255, 255, 255, 0.12);
+		color: rgb(255, 255, 255);
+		border-color: rgba(255, 255, 255, 0.12);
+	}
+</style>

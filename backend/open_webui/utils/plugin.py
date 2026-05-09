@@ -415,8 +415,18 @@ async def install_tool_and_function_dependencies():
     and then installing them using pip. Duplicates or similar version specifications are
     handled by pip as much as possible.
     """
-    function_list = await Functions.get_functions(active_only=True)
-    tool_list = await Tools.get_tools()
+    function_list = []
+    tool_list = []
+
+    try:
+        function_list = await Functions.get_functions(active_only=True)
+    except Exception as e:
+        log.warning(f'Skipping function dependency preload during startup: {e}')
+
+    try:
+        tool_list = await Tools.get_tools()
+    except Exception as e:
+        log.warning(f'Skipping tool dependency preload during startup: {e}')
 
     all_dependencies = ''
     try:

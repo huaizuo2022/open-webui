@@ -36,6 +36,7 @@ from open_webui.env import (
     PASSWORD_VALIDATION_REGEX_PATTERN,
     REDIS_KEY_PREFIX,
     pk,
+    WEBUI_AUTH,
     WEBUI_SECRET_KEY,
     TRUSTED_SIGNATURE_KEY,
     STATIC_DIR,
@@ -294,6 +295,28 @@ def get_http_authorization_cred(auth_header: Optional[str]):
         return None
 
 
+async def ensure_anonymous_user():
+    anonymous_email = 'guest@localhost'
+    anonymous_name = 'Guest'
+
+    user = await Users.get_user_by_email(anonymous_email)
+    if user:
+        return user
+
+    if await Users.has_users():
+        first_user = await Users.get_first_user()
+        if first_user:
+            return first_user
+
+    created = await Auths.insert_new_auth(
+        email=anonymous_email,
+        password=get_password_hash(str(uuid.uuid4())),
+        name=anonymous_name,
+        role='admin',
+    )
+    return created
+
+
 async def get_current_user(
     request: Request,
     response: Response,
@@ -317,6 +340,20 @@ async def get_current_user(
         token = request.state.token.credentials
 
     if token is None:
+        if not WEBUI_AUTH:
+            user = await ensure_anonymous_user()
+            if user is None:
+                raise HTTPException(status_code=401, detail='Not authenticated')
+
+            token = create_token(data={'id': user.id})
+            response.set_cookie(
+                key='token',
+                value=token,
+                httponly=True,
+                samesite='lax',
+                secure=False,
+            )
+            return user
         raise HTTPException(status_code=401, detail='Not authenticated')
 
     # auth by api key

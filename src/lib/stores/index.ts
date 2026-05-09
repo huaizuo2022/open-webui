@@ -281,6 +281,7 @@ type Config = {
 	default_locale: string;
 	default_models: string;
 	default_prompt_suggestions: PromptSuggestion[];
+	default_prompt_suggestion_groups?: PromptSuggestionGroup[];
 	features: {
 		auth: boolean;
 		auth_trusted_header: boolean;
@@ -315,6 +316,12 @@ type Config = {
 type PromptSuggestion = {
 	content: string;
 	title: [string, string];
+};
+
+type PromptSuggestionGroup = {
+	id: string;
+	label: string;
+	prompts: PromptSuggestion[];
 };
 
 export type SessionUser = {

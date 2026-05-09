@@ -4,12 +4,12 @@
 
 	import { toast } from 'svelte-sonner';
 
-	import { getBackendConfig, getSessionUser, userSignIn, userSignUp, sendVerificationCode, signInWithCode } from '$lib/apis/auths';
+	import { getSessionUser, userSignIn, userSignUp, sendVerificationCode, signInWithCode } from '$lib/apis/auths';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { config, user, socket } from '$lib/stores';
 
-	import { generateInitialsImage, getUserTimezone } from '$lib/utils';
-	import { updateUserTimezone } from '$lib/apis/users';
+import { generateInitialsImage, getUserTimezone } from '$lib/utils';
+  import { updateUserTimezone } from '$lib/apis/auths';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';

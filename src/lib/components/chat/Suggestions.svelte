@@ -11,6 +11,7 @@
 	export let className = '';
 	export let inputValue = '';
 	export let onSelect = (e) => {};
+	export let shuffleKey = 0;
 
 	let sortedPrompts = [];
 
@@ -58,7 +59,7 @@
 		}
 	};
 
-	$: if (suggestionPrompts) {
+	$: if (suggestionPrompts || shuffleKey >= 0) {
 		sortedPrompts = [...(suggestionPrompts ?? [])].sort(() => Math.random() - 0.5);
 		getFilteredPrompts(inputValue);
 	}

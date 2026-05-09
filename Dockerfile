@@ -32,8 +32,9 @@ ARG BUILD_HASH
 
 WORKDIR /app
 
-# to store git revision in build
-RUN apk add --no-cache git
+# git is only needed for optional build metadata; do not block builds if
+# Alpine mirrors are temporarily unavailable on the target host.
+RUN apk add --no-cache git || echo "Skipping optional git install in frontend build stage"
 
 COPY package.json package-lock.json ./
 RUN npm ci --force

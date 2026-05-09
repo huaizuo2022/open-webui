@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open WebUI Skills 管理</title>
+    <style>
+        :root {
+            --primary: #1a73e8;
+            --bg: #f8f9fa;
+            --card-bg: #ffffff;
+            --text: #202124;
+            --text-secondary: #5f6368;
+            --border: #dadce0;
+            --shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        .header { background: var(--card-bg); border-bottom: 1px solid var(--border); padding: 20px 32px; box-shadow: var(--shadow); }
+        .header h1 { font-size: 24px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+        .stats { display: flex; gap: 24px; margin-bottom: 24px; }
+        .stat-card { background: var(--card-bg); padding: 20px 24px; border-radius: 8px; box-shadow: var(--shadow); flex: 1; }
+        .stat-card h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; }
+        .stat-card .value { font-size: 32px; font-weight: 500; color: var(--primary); }
+        .search-bar { margin-bottom: 24px; }
+        .search-bar input { width: 100%; padding: 16px 20px; border: 1px solid var(--border); border-radius: 8px; font-size: 16px; outline: none; transition: border-color 0.2s; }
+        .search-bar input:focus { border-color: var(--primary); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
+        .card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); transition: box-shadow 0.2s; cursor: pointer; }
+        .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .card h3 { font-size: 18px; font-weight: 500; color: var(--primary); }
+        .card-id { font-size: 12px; color: var(--text-secondary); background: var(--bg); padding: 4px 8px; border-radius: 4px; }
+        .card p { color: var(--text-secondary); line-height: 1.6; font-size: 14px; margin-bottom: 12px; }
+        .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+        .tag { font-size: 12px; padding: 4px 10px; background: #e8f0fe; color: var(--primary); border-radius: 16px; }
+        .loading { text-align: center; padding: 60px; color: var(--text-secondary); font-size: 18px; }
+        .error { background: #fde8e8; color: #c5221f; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .filter-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filter-btn { padding: 8px 16px; border: 1px solid var(--border); background: var(--card-bg); border-radius: 20px; cursor: pointer; font-size: 14px; }
+        .filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); text-decoration: none; font-size: 14px; margin-bottom: 20px; }
+        .back-link:hover { text-decoration: underline; }
+        .category-label { font-size: 12px; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 12px; padding-left: 4px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📚 Open WebUI Skills 管理</h1>
+    </div>
+    
+    <div class="container">
+        <a href="/" class="back-link">← 返回首页</a>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>总技能数</h3>
+                <div class="value" id="total-count">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>本机服务</h3>
+                <div class="value" style="font-size: 20px;">127.0.0.1:8081</div>
+            </div>
+        </div>
+        
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="🔍 搜索技能名称、描述或标签..." oninput="filterSkills()">
+        </div>
+        
+        <div class="filter-bar" id="filterBar">
+            <button class="filter-btn active" onclick="setFilter('all')">全部</button>
+            <button class="filter-btn" onclick="setFilter('zan')">有赞相关</button>
+            <button class="filter-btn" onclick="setFilter('trade')">交易相关</button>
+            <button class="filter-btn" onclick="setFilter('ops')">运维相关</button>
+            <button class="filter-btn" onclick="setFilter('feishu')">飞书相关</button>
+        </div>
+        
+        <div id="content">
+            <div class="loading">⏳️ 正在加载技能列表...</div>
+        </div>
+    </div>
+
+    <script>
+        let allSkills = [];
+        let currentFilter = 'all';
+
+        async function loadSkills() {
+            const content = document.getElementById('content');
+            content.innerHTML = '<div class="loading">⏳️ 正在加载技能列表...</div>';
+
+            try {
+                const response = await fetch('/api/v1/skills/');
+                if (!response.ok) throw new Error('API 请求失败');
+                
+                allSkills = await response.json();
+                document.getElementById('total-count').textContent = allSkills.length;
+                displaySkills(allSkills);
+            } catch (error) {
+                content.innerHTML = `<div class="error">
+                    ❌ 加载失败: ${error.message}<br><br>
+                    请确认：<br>
+                    1. 后端服务是否运行在 http://127.0.0.1:8081<br>
+                    2. Skills 是否已导入
+                </div>`;
+            }
+        }
+
+        function displaySkills(skills) {
+            const content = document.getElementById('content');
+            
+            if (skills.length === 0) {
+                content.innerHTML = '<div class="loading">未找到匹配的技能</div>';
+                return;
+            }
+
+            // Group by first character
+            const groups = {};
+            skills.forEach(skill => {
+                const category = skill.id.split('-')[0];
+                if (!groups[category]) groups[category] = [];
+                groups[category].push(skill);
+            });
+
+            let html = '';
+            Object.keys(groups).sort().forEach(category => {
+                html += `<div class="category-label">${category}</div>`;
+                html += '<div class="grid">';
+                groups[category].forEach(skill => {
+                    html += `
+                    <div class="card" onclick="showSkillDetail('${skill.id}')">
+                        <div class="card-header">
+                            <h3>${skill.name || '未命名'}</h3>
+                            <span class="card-id">${skill.id}</span>
+                        </div>
+                        <p>${skill.description || '暂无描述'}</p>
+                        <div class="tags">
+                            ${(skill.meta?.tags || []).map(tag => `<span class="tag">${tag}</span>`).join('')}
+                        </div>
+                    </div>`;
+                });
+                html += '</div><div style="height: 24px;"></div>';
+            });
+            
+            content.innerHTML = html;
+        }
+
+        function filterSkills() {
+            const keyword = document.getElementById('searchInput').value.toLowerCase();
+            let filtered = allSkills.filter(s => 
+                (s.name || '').toLowerCase().includes(keyword) ||
+                (s.description || '').toLowerCase().includes(keyword) ||
+                (s.id || '').toLowerCase().includes(keyword) ||
+                (s.meta?.tags || []).some(t => t.toLowerCase().includes(keyword))
+            );
+            
+            if (currentFilter !== 'all') {
+                filtered = filtered.filter(s => s.id.startsWith(currentFilter));
+            }
+            
+            displaySkills(filtered);
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent.includes(filter === 'all' ? '全部' : filter === 'zan' ? '有赞' : filter === 'trade' ? '交易' : filter === 'ops' ? '运维' : '飞书'));
+            });
+            filterSkills();
+        }
+
+        function showSkillDetail(id) {
+            const skill = allSkills.find(s => s.id === id);
+            if (skill) {
+                alert(`技能详情:\n\n名称: ${skill.name}\nID: ${skill.id}\n\n描述:\n${skill.description}\n\n标签: ${(skill.meta?.tags || []).join(', ')}`);
+            }
+        }
+
+        loadSkills();
+    </script>
+</body>
+</html>

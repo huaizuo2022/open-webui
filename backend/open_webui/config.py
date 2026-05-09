@@ -1293,6 +1293,133 @@ DEFAULT_PROMPT_SUGGESTIONS = PersistentConfig(
     default_prompt_suggestions,
 )
 
+try:
+    default_prompt_suggestion_groups = json.loads(
+        os.environ.get('DEFAULT_PROMPT_SUGGESTION_GROUPS', '[]')
+    )
+except Exception as e:
+    log.exception(f'Error loading DEFAULT_PROMPT_SUGGESTION_GROUPS: {e}')
+    default_prompt_suggestion_groups = []
+if default_prompt_suggestion_groups == []:
+    default_prompt_suggestion_groups = [
+        {
+            'id': 'writing',
+            'label': '写作表达',
+            'prompts': [
+                {
+                    'title': ['帮我写一封邮件', '礼貌催进度，不显得咄咄逼人'],
+                    'content': '帮我写一封礼貌催进度的工作邮件，语气专业但不过于强硬，适合发给合作方项目负责人。',
+                },
+                {
+                    'title': ['润色一段文案', '保留原意，表达更自然'],
+                    'content': '帮我润色一段中文文案，保持原意不变，让表达更自然、更像真实的人在说话。',
+                },
+                {
+                    'title': ['写一条朋友圈', '低调分享今天的小成就'],
+                    'content': '帮我写一条不过分炫耀、但有点开心的朋友圈文案，主题是我今天完成了一件拖了很久的事。',
+                },
+                {
+                    'title': ['写短视频口播稿', '30 秒内讲清一个卖点'],
+                    'content': '帮我写一段 30 秒短视频口播稿，用轻松自然的语气讲清一个产品卖点，并带一个简短收尾。',
+                },
+            ],
+        },
+        {
+            'id': 'work',
+            'label': '职场办公',
+            'prompts': [
+                {
+                    'title': ['整理会议纪要', '提炼结论、待办和负责人'],
+                    'content': '帮我把一段会议讨论内容整理成清晰的会议纪要，按结论、待办事项、负责人和截止时间输出。',
+                },
+                {
+                    'title': ['拆解工作计划', '把大目标变成可执行步骤'],
+                    'content': '帮我把一个模糊的工作目标拆成可执行计划，按本周、下周、风险点和所需资源来整理。',
+                },
+                {
+                    'title': ['准备汇报提纲', '适合向老板做 5 分钟汇报'],
+                    'content': '帮我整理一个适合向老板做 5 分钟口头汇报的提纲，重点突出进展、问题和下一步计划。',
+                },
+                {
+                    'title': ['分析用户反馈', '归类问题并提炼优先级'],
+                    'content': '帮我把一批用户反馈做分类整理，提炼高频问题、潜在原因和建议优先级。',
+                },
+            ],
+        },
+        {
+            'id': 'study',
+            'label': '学习提升',
+            'prompts': [
+                {
+                    'title': ['帮我解释概念', '用通俗例子讲明白'],
+                    'content': '请用通俗的语言和具体例子，帮我讲明白一个复杂概念，并告诉我最容易混淆的点。',
+                },
+                {
+                    'title': ['做一个学习计划', '7 天快速入门新主题'],
+                    'content': '帮我做一个 7 天学习计划，让我可以快速入门一个陌生主题，每天安排重点、时长和练习方式。',
+                },
+                {
+                    'title': ['把长文讲简单', '适合初学者理解'],
+                    'content': '帮我把一篇较长的内容用适合初学者的方式总结出来，按核心观点、关键术语和一个例子来讲。',
+                },
+                {
+                    'title': ['口语练习搭子', '连续追问直到我说顺'],
+                    'content': '你来扮演英语口语练习搭子，围绕日常自我介绍持续追问，并在每轮后帮我纠正表达。',
+                },
+            ],
+        },
+        {
+            'id': 'life',
+            'label': '生活灵感',
+            'prompts': [
+                {
+                    'title': ['做旅行计划', '3 天轻松行程，不赶路'],
+                    'content': '帮我做一个 3 天旅行计划，风格轻松、不赶路，适合第一次去这个城市的人。',
+                },
+                {
+                    'title': ['安排健身挑战', '30 天可坚持、无器械'],
+                    'content': '帮我设计一个 30 天居家健身挑战，目标是容易坚持、每天 20 分钟左右、无需器械。',
+                },
+                {
+                    'title': ['整理数字生活', '一步步清理文件和照片'],
+                    'content': '帮我制定一个整理数字生活的计划，包括文件、照片、邮件和常用账号，按优先级分步骤执行。',
+                },
+                {
+                    'title': ['推荐电影清单', '5 部不同类型，附理由'],
+                    'content': '推荐 5 部不同类型、确实值得一看的电影，并用一句话说明每部电影为什么值得看。',
+                },
+            ],
+        },
+        {
+            'id': 'coding',
+            'label': '代码开发',
+            'prompts': [
+                {
+                    'title': ['解释报错原因', '先定位，再给修复思路'],
+                    'content': '帮我分析一段代码报错，先解释根因，再给最小修改方案和验证步骤。',
+                },
+                {
+                    'title': ['写一个小功能', '尽量简单、直接可运行'],
+                    'content': '帮我实现一个小功能，要求优先用最简单直接的写法，并补上最关键的注释和使用示例。',
+                },
+                {
+                    'title': ['重构一段代码', '减少复杂度，不改变行为'],
+                    'content': '帮我重构一段代码，目标是降低复杂度和重复逻辑，同时不改变原有行为。',
+                },
+                {
+                    'title': ['看懂旧项目', '快速梳理结构和关键入口'],
+                    'content': '帮我快速看懂一个老项目，先梳理目录结构、核心入口、关键依赖，再告诉我应该先读哪些文件。',
+                },
+            ],
+        },
+    ]
+
+DEFAULT_PROMPT_SUGGESTION_GROUPS = PersistentConfig(
+    'DEFAULT_PROMPT_SUGGESTION_GROUPS',
+    'ui.prompt_suggestion_groups',
+    default_prompt_suggestion_groups,
+)
+
 MODEL_ORDER_LIST = PersistentConfig(
     'MODEL_ORDER_LIST',
     'ui.model_order_list',

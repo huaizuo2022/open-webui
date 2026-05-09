@@ -413,6 +413,7 @@ from open_webui.config import (
     PENDING_USER_OVERLAY_CONTENT,
     PENDING_USER_OVERLAY_TITLE,
     DEFAULT_PROMPT_SUGGESTIONS,
+    DEFAULT_PROMPT_SUGGESTION_GROUPS,
     DEFAULT_MODELS,
     DEFAULT_PINNED_MODELS,
     DEFAULT_ARENA_MODEL,
@@ -681,28 +682,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(scheduler_worker_loop(app))
 
     if app.state.config.ENABLE_BASE_MODELS_CACHE:
-        try:
-            await get_all_models(
-                Request(
-                    # Creating a mock request object to pass to get_all_models
-                    {
-                        'type': 'http',
-                        'asgi.version': '3.0',
-                        'asgi.spec_version': '2.0',
-                        'method': 'GET',
-                        'path': '/internal',
-                        'query_string': b'',
-                        'headers': Headers({}).raw,
-                        'client': ('127.0.0.1', 12345),
-                        'server': ('127.0.0.1', 80),
-                        'scheme': 'http',
-                        'app': app,
-                    }
-                ),
-                None,
-            )
-        except Exception as e:
-            log.warning(f'Failed to pre-fetch models at startup: {e}')
+        log.info('Skipping eager base model cache warm-up during startup; models will load on demand.')
 
     # Pre-fetch tool server specs so the first request doesn't pay the latency cost
     if len(app.state.config.TOOL_SERVER_CONNECTIONS) > 0:
@@ -888,6 +868,7 @@ app.state.config.DEFAULT_MODEL_PARAMS = DEFAULT_MODEL_PARAMS
 
 
 app.state.config.DEFAULT_PROMPT_SUGGESTIONS = DEFAULT_PROMPT_SUGGESTIONS
+app.state.config.DEFAULT_PROMPT_SUGGESTION_GROUPS = DEFAULT_PROMPT_SUGGESTION_GROUPS
 app.state.config.DEFAULT_USER_ROLE = DEFAULT_USER_ROLE
 app.state.config.DEFAULT_GROUP_ID = DEFAULT_GROUP_ID
 
@@ -1151,21 +1132,9 @@ app.state.rf = None
 app.state.YOUTUBE_LOADER_TRANSLATION = None
 
 
-try:
-    app.state.ef = get_ef(app.state.config.RAG_EMBEDDING_ENGINE, app.state.config.RAG_EMBEDDING_MODEL)
-    if app.state.config.ENABLE_RAG_HYBRID_SEARCH and not app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
-        app.state.rf = get_rf(
-            app.state.config.RAG_RERANKING_ENGINE,
-            app.state.config.RAG_RERANKING_MODEL,
-            app.state.config.RAG_EXTERNAL_RERANKER_URL,
-            app.state.config.RAG_EXTERNAL_RERANKER_API_KEY,
-            app.state.config.RAG_EXTERNAL_RERANKER_TIMEOUT,
-        )
-    else:
-        app.state.rf = None
-except Exception as e:
-    log.error(f'Error updating models: {e}')
-    pass
+app.state.ef = None
+app.state.rf = None
+log.info('Skipping eager embedding/reranker preload during startup; models will load on first retrieval use.')
 
 
 app.state.EMBEDDING_FUNCTION = get_embedding_function(
@@ -2274,11 +2243,12 @@ async def get_app_config(request: Request):
                 else {}
             ),
         },
+        'default_models': app.state.config.DEFAULT_MODELS,
+        'default_pinned_models': app.state.config.DEFAULT_PINNED_MODELS,
+        'default_prompt_suggestions': app.state.config.DEFAULT_PROMPT_SUGGESTIONS,
+        'default_prompt_suggestion_groups': app.state.config.DEFAULT_PROMPT_SUGGESTION_GROUPS,
         **(
             {
-                'default_models': app.state.config.DEFAULT_MODELS,
-                'default_pinned_models': app.state.config.DEFAULT_PINNED_MODELS,
-                'default_prompt_suggestions': app.state.config.DEFAULT_PROMPT_SUGGESTIONS,
                 'user_count': user_count,
                 'code': {
                     'engine': app.state.config.CODE_EXECUTION_ENGINE,

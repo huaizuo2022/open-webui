@@ -1,4 +1,5 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+export { getBackendConfig } from '$lib/apis/index';
 
 export const getAdminDetails = async (token: string) => {
 	let error = null;

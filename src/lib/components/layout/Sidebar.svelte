@@ -76,7 +76,7 @@
 	import HotkeyHint from '../common/HotkeyHint.svelte';
 
 	const BREAKPOINT = 768;
-	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
+	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace', 'skills'];
 
 	let scrollTop = 0;
 
@@ -133,6 +133,8 @@
 				);
 			case 'playground':
 				return $user?.role === 'admin';
+			case 'skills':
+				return true; // Skills 对所有用户可见
 			default:
 				return false;
 		}
@@ -144,7 +146,8 @@
 			workspace: { label: 'Workspace', href: '/workspace', iconType: 'workspace' },
 			automations: { label: 'Automations', href: '/automations', iconType: 'automations' },
 			calendar: { label: 'Calendar', href: '/calendar', iconType: 'calendar' },
-			playground: { label: 'Playground', href: '/playground', iconType: 'playground' }
+			playground: { label: 'Playground', href: '/playground', iconType: 'playground' },
+			skills: { label: 'Skills', href: '/workspace/skills', iconType: 'skills' }
 		};
 		return items[id];
 	};
@@ -1168,9 +1171,24 @@
 														d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"
 													/>
 												</svg>
-											{:else if itemId === 'playground'}
+										{:else if itemId === 'playground'}
 												<Code className="size-4.5" strokeWidth="2" />
-											{/if}
+											{:else if itemId === 'skills'}
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													fill="none"
+													viewBox="0 0 24 24"
+													stroke-width="2"
+													stroke="currentColor"
+													class="size-4.5"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														d="M9.813 15.603 11.703 9.513m0 0 3.094-5.793m-3.094 5.793L8.513 3.72m3.094 5.793H4.5m5.313 5.793 5.313 9.513m0 0 3.094 5.793M14.313 9.513 19.5 3.72m-5.313 5.793h5.313"
+													/>
+												</svg>
+										{/if}
 										</div>
 
 										<div class="flex self-center translate-y-[0.5px]">
