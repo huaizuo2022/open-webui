@@ -177,8 +177,8 @@ def load_workspace_agents_md() -> str:
         return ''
 
 
-async def auto_select_skill_ids_from_messages(messages: list[dict], user_id: str) -> set[str]:
-    text = '\n'.join([part for message in messages for part in _get_text_parts(message)]).lower()
+async def auto_select_skill_ids_from_text(text: str, user_id: str) -> set[str]:
+    text = (text or '').lower()
     if not text:
         return set()
 
@@ -2573,9 +2573,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # Skills — extract IDs from message content (<$skillId|label> tags) so
     # persisted chats work without relying on the frontend to send skill_ids.
+    current_user_text = get_last_user_message(form_data.get('messages', [])) or ''
+
     user_skill_ids = set(form_data.pop('skill_ids', None) or [])
     user_skill_ids |= extract_skill_ids_from_messages(form_data.get('messages', []))
-    user_skill_ids |= await auto_select_skill_ids_from_messages(form_data.get('messages', []), user.id)
+    user_skill_ids |= await auto_select_skill_ids_from_text(current_user_text, user.id)
     model_skill_ids = set(model.get('info', {}).get('meta', {}).get('skillIds', []))
 
     all_skill_ids = user_skill_ids | model_skill_ids
