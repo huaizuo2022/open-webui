@@ -1875,7 +1875,31 @@ async def chat_completion(
                 except Exception:
                     pass
 
-                if isinstance(parsed_result, dict) and not parsed_result.get('error'):
+                skill_failed = False
+                if isinstance(parsed_result, dict):
+                    if parsed_result.get('error'):
+                        skill_failed = True
+                    if parsed_result.get('exit_code', 0) != 0:
+                        skill_failed = True
+
+                    formatted_check = format_company_route_result(
+                        forced_company_route.skill_id,
+                        parsed_result,
+                    )
+                    if not formatted_check or not formatted_check.strip():
+                        skill_failed = True
+                else:
+                    skill_failed = True
+
+                if skill_failed:
+                    log.info(
+                        'Forced company route skill failed: skill=%s chat_id=%s message_id=%s, falling back to internal_priority_route',
+                        forced_company_route.skill_id,
+                        metadata.get('chat_id'),
+                        metadata.get('message_id'),
+                    )
+                    form_data, metadata = apply_internal_priority_to_form_data(form_data, metadata)
+                else:
                     formatted_message = format_company_route_result(
                         forced_company_route.skill_id,
                         parsed_result,
