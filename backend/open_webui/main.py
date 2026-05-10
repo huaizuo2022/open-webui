@@ -126,7 +126,12 @@ from open_webui.models.models import Models
 from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats, ChatForm
 from open_webui.tools.builtin import execute_internal_skill_request
-from open_webui.utils.company_resources import detect_company_resource_route, format_company_route_result
+from open_webui.utils.company_resources import (
+    detect_company_resource_route,
+    format_company_route_result,
+    RouteType,
+)
+from open_webui.utils.internal_priority_prompt import apply_internal_priority_to_form_data
 from open_webui.utils.misc import (
     get_last_user_message,
     openai_chat_completion_message_template,
@@ -1852,16 +1857,17 @@ async def chat_completion(
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
             forced_company_route = detect_company_resource_route(extract_user_message_text(form_data, metadata))
-            if forced_company_route:
+
+            if forced_company_route and forced_company_route.route_type == RouteType.FORCED_SKILL:
                 log.info(
                     'Forced company route matched: skill=%s chat_id=%s message_id=%s',
-                    forced_company_route.get('skill_id'),
+                    forced_company_route.skill_id,
                     metadata.get('chat_id'),
                     metadata.get('message_id'),
                 )
                 tool_result = await execute_internal_skill_request(
-                    skill_id=forced_company_route['skill_id'],
-                    request=forced_company_route['request'],
+                    skill_id=forced_company_route.skill_id,
+                    request=forced_company_route.request,
                 )
                 parsed_result = tool_result
                 try:
@@ -1871,7 +1877,7 @@ async def chat_completion(
 
                 if isinstance(parsed_result, dict) and not parsed_result.get('error'):
                     formatted_message = format_company_route_result(
-                        forced_company_route['skill_id'],
+                        forced_company_route.skill_id,
                         parsed_result,
                     )
                     forced_form_data = {
@@ -1881,7 +1887,7 @@ async def chat_completion(
                     forced_tasks = None
                     log.info(
                         'Forced company route completed: skill=%s chat_id=%s message_id=%s content_len=%s',
-                        forced_company_route.get('skill_id'),
+                        forced_company_route.skill_id,
                         metadata.get('chat_id'),
                         metadata.get('message_id'),
                         len(formatted_message),
@@ -1900,7 +1906,7 @@ async def chat_completion(
                                 'sources': [
                                     {
                                         'source': {
-                                            'name': f"forced-route:{forced_company_route['skill_id']}",
+                                            'name': f"forced-route:{forced_company_route.skill_id}",
                                         },
                                         'document': [formatted_message],
                                         'metadata': [parsed_result],
@@ -1926,6 +1932,14 @@ async def chat_completion(
                         [],
                     )
                     return await process_chat_response(response, ctx)
+
+            elif forced_company_route and forced_company_route.route_type == RouteType.INTERNAL_PRIORITY:
+                log.info(
+                    'Internal priority route matched: chat_id=%s message_id=%s',
+                    metadata.get('chat_id'),
+                    metadata.get('message_id'),
+                )
+                form_data, metadata = apply_internal_priority_to_form_data(form_data, metadata)
 
             form_data, metadata, events = await process_chat_payload(request, form_data, user, metadata, model)
 
