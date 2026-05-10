@@ -54,13 +54,15 @@ def apply_internal_priority_to_form_data(form_data: dict, metadata: dict = None)
     if has_internal_priority_injected(messages):
         return form_data, metadata
 
-    original_system = ""
+    system_contents = []
     new_messages = []
     for msg in messages:
         if isinstance(msg, dict) and msg.get('role') == 'system':
-            original_system = msg.get('content', '')
+            system_contents.append(msg.get('content', ''))
             continue
         new_messages.append(msg)
+
+    original_system = "\n\n".join(system_contents) if system_contents else ""
 
     final_prompt = build_internal_priority_prompt(original_system)
     new_messages.insert(0, {'role': 'system', 'content': final_prompt})

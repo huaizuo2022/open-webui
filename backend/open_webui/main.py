@@ -1892,8 +1892,8 @@ async def chat_completion(
                     skill_failed = True
 
                 if skill_failed:
-                    log.info(
-                        'Forced company route skill failed: skill=%s chat_id=%s message_id=%s, falling back to internal_priority_route',
+                    log.warning(
+                        'Forced company route skill failed: skill=%s, chat_id=%s, message_id=%s, falling back to internal_priority_route',
                         forced_company_route.skill_id,
                         metadata.get('chat_id'),
                         metadata.get('message_id'),
