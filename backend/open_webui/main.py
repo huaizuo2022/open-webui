@@ -1910,7 +1910,7 @@ async def chat_completion(
                     }
                     forced_tasks = None
                     log.info(
-                        'Forced company route completed: skill=%s chat_id=%s message_id=%s content_len=%s',
+                        'Forced company route completed: skill=%s, chat_id=%s, message_id=%s, content_len=%s',
                         forced_company_route.skill_id,
                         metadata.get('chat_id'),
                         metadata.get('message_id'),
