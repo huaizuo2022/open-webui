@@ -14,6 +14,7 @@ class TestDetectCompanyResourceRoute:
         result = detect_company_resource_route('看看 https://jira.qima-inc.com/browse/ONLINE-98765')
         assert result.route_type == RouteType.FORCED_SKILL
         assert result.skill_id == 'zan-jira'
+        assert result.confidence == 'high'
 
     def test_feishu_wiki_forced_skill(self):
         result = detect_company_resource_route('查下这个飞书文档 qima.feishu.cn/wiki/ABC123')
@@ -57,10 +58,15 @@ class TestDetectCompanyResourceRoute:
         result = detect_company_resource_route('traceId 怎么查')
         assert result.route_type == RouteType.NONE
 
+    def test_empty_string_returns_none(self):
+        result = detect_company_resource_route('')
+        assert result.route_type == RouteType.NONE
+
     def test_traceid_with_app_name_forced_skill(self):
         result = detect_company_resource_route('查下 pay-opcenter 这个应用的 abc-def-ghi-jkl 日志')
         assert result.route_type == RouteType.FORCED_SKILL
         assert result.skill_id == 'zan-log-query'
+        assert result.confidence == 'high'
 
     def test_feishu_keyword_internal_priority(self):
         result = detect_company_resource_route('飞书文档怎么查')
