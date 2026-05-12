@@ -650,23 +650,27 @@ async def signin(
 
     elif WEBUI_AUTH == False:
         guest_email = 'guest@localhost'
-        user = await Users.get_user_by_email(guest_email.lower(), db=db)
+        requested_email = form_data.email.lower().strip()
+        requested_password = form_data.password
 
-        if user is None and not await Users.has_users(db=db):
-            await signup_handler(
-                request,
-                guest_email,
-                str(uuid.uuid4()),
-                'Guest',
+        if requested_email and requested_password and requested_email != guest_email:
+            user = await Auths.authenticate_user(
+                requested_email,
+                lambda pw: verify_password(requested_password, pw),
                 db=db,
             )
+        else:
             user = await Users.get_user_by_email(guest_email.lower(), db=db)
 
-        if user is None:
-            first_user = await Users.get_first_user(db=db)
-            if first_user is None:
-                raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
-            user = first_user
+            if user is None:
+                await signup_handler(
+                    request,
+                    guest_email,
+                    str(uuid.uuid4()),
+                    'Guest',
+                    db=db,
+                )
+                user = await Users.get_user_by_email(guest_email.lower(), db=db)
     else:
         if signin_rate_limiter.is_limited(form_data.email.lower()):
             raise HTTPException(
@@ -807,7 +811,11 @@ async def signup_handler(
 
     # Atomically check if this is the only user *after* the insert.
     # Only the single user present at this point should become admin.
-    if await Users.get_num_users(db=db) == 1:
+    guest_user = await Users.get_user_by_email('guest@localhost', db=db)
+    total_users = await Users.get_num_users(db=db)
+    only_guest_exists = guest_user is not None and total_users == 2 and user.email != 'guest@localhost'
+
+    if user.email != 'guest@localhost' and (total_users == 1 or only_guest_exists):
         await Users.update_user_role_by_id(user.id, 'admin', db=db)
         user = await Users.get_user_by_id(user.id, db=db)
         request.app.state.config.ENABLE_SIGNUP = False

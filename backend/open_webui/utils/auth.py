@@ -301,18 +301,16 @@ async def ensure_anonymous_user():
 
     user = await Users.get_user_by_email(anonymous_email)
     if user:
+        if user.role == 'admin':
+            await Users.update_user_role_by_id(user.id, 'user')
+            user = await Users.get_user_by_id(user.id)
         return user
-
-    if await Users.has_users():
-        first_user = await Users.get_first_user()
-        if first_user:
-            return first_user
 
     created = await Auths.insert_new_auth(
         email=anonymous_email,
         password=get_password_hash(str(uuid.uuid4())),
         name=anonymous_name,
-        role='admin',
+        role='user',
     )
     return created
 

@@ -45,7 +45,7 @@ def main():
 
     assert response.status_code == 200, response.text
     assert response.json()["email"] == "guest@localhost"
-    assert response.json()["role"] == "admin"
+    assert response.json()["role"] == "user"
     assert "token=" in response.headers.get("set-cookie", "")
 
     session_response = client.get("/session")
