@@ -19,6 +19,9 @@ async def redeem_code(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    if user.email == 'guest@localhost':
+        raise HTTPException(status_code=401, detail='SIGN_IN_REQUIRED_FOR_REDEEM')
+
     try:
         code = await Credits.mark_code_used(form_data.code, user.id, db=db)
     except ValueError as exc:

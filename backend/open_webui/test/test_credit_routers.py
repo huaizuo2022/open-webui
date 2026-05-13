@@ -88,6 +88,31 @@ class CreditRouterSurfaceTests(unittest.TestCase):
         self.assertIn(('/credits/redeem-codes', ('GET',)), registered)
         self.assertIn(('/credits/redeem-codes/batches/{batch_id}/export', ('GET',)), registered)
 
+    def test_guest_user_cannot_redeem_code(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from open_webui.routers import credits
+
+        class DummyUser:
+            id = 'guest'
+            email = 'guest@localhost'
+
+        async def dummy_db():
+            yield None
+
+        app = FastAPI()
+        app.include_router(credits.router, prefix='/credits')
+        app.dependency_overrides[credits.get_verified_user] = lambda: DummyUser()
+        app.dependency_overrides[credits.get_async_session] = dummy_db
+
+        with patch('open_webui.routers.credits.Credits.mark_code_used', new=AsyncMock()) as mark_code_used:
+            response = TestClient(app).post('/credits/redeem', json={'code': 'TB-VALID'})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['detail'], 'SIGN_IN_REQUIRED_FOR_REDEEM')
+        mark_code_used.assert_not_awaited()
+
 
 if __name__ == '__main__':
     unittest.main()
