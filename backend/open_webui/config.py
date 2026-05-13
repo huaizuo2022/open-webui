@@ -1220,7 +1220,7 @@ WEBUI_URL = PersistentConfig('WEBUI_URL', 'webui.url', os.environ.get('WEBUI_URL
 ENABLE_SIGNUP = PersistentConfig(
     'ENABLE_SIGNUP',
     'ui.enable_signup',
-    (False if not WEBUI_AUTH else os.environ.get('ENABLE_SIGNUP', 'True').lower() == 'true'),
+    os.environ.get('ENABLE_SIGNUP', 'True').lower() == 'true',
 )
 
 ENABLE_LOGIN_FORM = PersistentConfig(
@@ -1447,7 +1447,7 @@ DEFAULT_MODEL_PARAMS = PersistentConfig(
 DEFAULT_USER_ROLE = PersistentConfig(
     'DEFAULT_USER_ROLE',
     'ui.default_user_role',
-    os.getenv('DEFAULT_USER_ROLE', 'pending'),
+    os.getenv('DEFAULT_USER_ROLE', 'user'),
 )
 
 DEFAULT_GROUP_ID = PersistentConfig(

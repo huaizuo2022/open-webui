@@ -179,6 +179,36 @@ class SessionUserInfoResponse(SessionUserResponse, UserStatus):
     date_of_birth: Optional[datetime.date] = None
 
 
+def is_signup_allowed(
+    *,
+    webui_auth: bool,
+    has_users: bool,
+    enable_signup: bool,
+    enable_login_form: bool,
+    enable_initial_admin_signup: bool,
+) -> bool:
+    if webui_auth:
+        if enable_signup and enable_login_form:
+            return True
+        return not has_users and enable_initial_admin_signup
+
+    return enable_signup
+
+
+def should_promote_signup_user_to_admin(
+    *,
+    webui_auth: bool,
+    user_email: str,
+    total_users: int,
+    guest_user_exists: bool,
+) -> bool:
+    if not webui_auth:
+        return False
+
+    only_guest_exists = guest_user_exists and total_users == 2 and user_email != 'guest@localhost'
+    return user_email != 'guest@localhost' and (total_users == 1 or only_guest_exists)
+
+
 @router.get('/', response_model=SessionUserInfoResponse)
 async def get_session_user(
     request: Request,
@@ -813,9 +843,12 @@ async def signup_handler(
     # Only the single user present at this point should become admin.
     guest_user = await Users.get_user_by_email('guest@localhost', db=db)
     total_users = await Users.get_num_users(db=db)
-    only_guest_exists = guest_user is not None and total_users == 2 and user.email != 'guest@localhost'
-
-    if user.email != 'guest@localhost' and (total_users == 1 or only_guest_exists):
+    if should_promote_signup_user_to_admin(
+        webui_auth=WEBUI_AUTH,
+        user_email=user.email,
+        total_users=total_users,
+        guest_user_exists=guest_user is not None,
+    ):
         await Users.update_user_role_by_id(user.id, 'admin', db=db)
         user = await Users.get_user_by_id(user.id, db=db)
         request.app.state.config.ENABLE_SIGNUP = False
@@ -850,13 +883,14 @@ async def signup(
 ):
     has_users = await Users.has_users(db=db)
 
-    if WEBUI_AUTH:
-        if not request.app.state.config.ENABLE_SIGNUP or not request.app.state.config.ENABLE_LOGIN_FORM:
-            if has_users or not ENABLE_INITIAL_ADMIN_SIGNUP:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
-    else:
-        if has_users:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    if not is_signup_allowed(
+        webui_auth=WEBUI_AUTH,
+        has_users=has_users,
+        enable_signup=request.app.state.config.ENABLE_SIGNUP,
+        enable_login_form=request.app.state.config.ENABLE_LOGIN_FORM,
+        enable_initial_admin_signup=ENABLE_INITIAL_ADMIN_SIGNUP,
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
 
     if not validate_email_format(form_data.email.lower()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.INVALID_EMAIL_FORMAT)
