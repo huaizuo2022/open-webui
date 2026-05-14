@@ -271,6 +271,32 @@ class BillingTests(unittest.TestCase):
         self.assertEqual(reservation.kind, 'credit')
         self.assertEqual(reserve_args[4], 6)
 
+    def test_confirm_chat_allowance_accepts_missing_reservation(self):
+        from open_webui.utils.billing import confirm_chat_allowance
+
+        asyncio.run(confirm_chat_allowance(None, chat_id='chat-1'))
+
+    def test_rollback_chat_allowance_accepts_missing_reservation(self):
+        from open_webui.utils.billing import rollback_chat_allowance
+
+        asyncio.run(rollback_chat_allowance(None, reason='chat_failed'))
+
+    def test_stream_wrapper_accepts_missing_reservation(self):
+        from open_webui.utils.billing import wrap_streaming_response_for_billing
+
+        async def stream():
+            yield b'a'
+            yield b'b'
+
+        async def run():
+            chunks = []
+            async for chunk in wrap_streaming_response_for_billing(stream(), None, chat_id='chat-1'):
+                chunks.append(chunk)
+            return chunks
+
+        chunks = asyncio.run(run())
+        self.assertEqual(chunks, [b'a', b'b'])
+
 
 if __name__ == '__main__':
     unittest.main()

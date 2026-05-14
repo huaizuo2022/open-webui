@@ -127,9 +127,12 @@ from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats, ChatForm
 from open_webui.tools.builtin import execute_internal_skill_request
 from open_webui.utils.company_resources import (
-    detect_company_resource_route,
     format_company_route_result,
     RouteType,
+)
+from open_webui.utils.internal_scope_guard import (
+    decide_internal_scope,
+    enforce_internal_only_form_data,
 )
 from open_webui.utils.internal_priority_prompt import apply_internal_priority_to_form_data
 from open_webui.utils.misc import (
@@ -1856,7 +1859,34 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
-            forced_company_route = detect_company_resource_route(extract_user_message_text(form_data, metadata))
+            form_data, metadata = enforce_internal_only_form_data(form_data, metadata)
+            scope_decision = decide_internal_scope(extract_user_message_text(form_data, metadata))
+            forced_company_route = scope_decision.route
+
+            if not scope_decision.allowed:
+                log.info(
+                    'Internal-only guard rejected chat: chat_id=%s message_id=%s',
+                    metadata.get('chat_id'),
+                    metadata.get('message_id'),
+                )
+                response = (
+                    build_forced_route_stream_response(form_data['model'], scope_decision.refusal_message)
+                    if form_data.get('stream')
+                    else openai_chat_completion_message_template(
+                        form_data['model'],
+                        message=scope_decision.refusal_message,
+                    )
+                )
+                ctx = await build_chat_response_context(
+                    request,
+                    form_data,
+                    user,
+                    model,
+                    metadata,
+                    None,
+                    [],
+                )
+                return await process_chat_response(response, ctx)
 
             if forced_company_route and forced_company_route.route_type == RouteType.FORCED_SKILL:
                 log.info(

@@ -36,9 +36,78 @@ class InternalRouteResult:
         return self.route_type != RouteType.NONE
 
 
-STRONG_INTERNAL_SYSTEMS = {"jira", "飞书", "feishu", "天网", "kibana", "xiaolv", "效能平台", "数仓平台", "日志"}
-WEAK_TECH_TERMS = {"apollo", "redis", "rds", "dubbo", "hbase", "es", "埋点", "traceid"}
-INTERNAL_ACTIONS = {"排查", "发布", "上线", "配置核对", "查日志", "查工单", "查数据", "联调", "回滚", "血缘分析"}
+STRONG_INTERNAL_SYSTEMS = {
+    "jira",
+    "飞书",
+    "feishu",
+    "天网",
+    "kibana",
+    "httpgateway",
+    "xiaolv",
+    "效能平台",
+    "数仓平台",
+    "日志",
+    "工单",
+}
+WEAK_TECH_TERMS = {"apollo", "redis", "rds", "mysql", "sql", "dubbo", "hbase", "es", "埋点", "traceid"}
+HELP_CENTER_PRODUCT_TERMS = {
+    "有赞",
+    "微商城",
+    "零售",
+    "美业",
+    "教育",
+    "crm",
+    "有赞crm",
+    "导购",
+    "导购助手",
+    "企微",
+    "企微助手",
+    "群团团",
+    "allvalue",
+    "分销",
+    "分销市场",
+    "有赞云",
+}
+HELP_CENTER_BUSINESS_TERMS = {
+    "店铺",
+    "商品",
+    "订单",
+    "配送",
+    "认证主体",
+    "营销",
+    "营销玩法",
+    "优惠券",
+    "优惠",
+    "满减",
+    "满减送",
+    "满赠",
+    "秒杀",
+    "限时折扣",
+    "拼团",
+    "会员",
+    "客户",
+    "触达",
+    "导购任务",
+    "储值",
+}
+INTERNAL_ACTIONS = {
+    "排查",
+    "发布",
+    "上线",
+    "配置核对",
+    "查日志",
+    "查工单",
+    "查数据",
+    "查询",
+    "查一下",
+    "查下",
+    "执行",
+    "读取",
+    "调用",
+    "联调",
+    "回滚",
+    "血缘分析",
+}
 COMPANY_MARKERS = {"内网", "公司内部", "qima", "youzan", "有赞", "qima-inc", "内部系统"}
 GENERIC_TERMS = {"环境", "应用名", "配置项", "链路"}
 
@@ -48,6 +117,50 @@ COMPANY_WEB_HOST_PATTERNS = (
     r'https?://[^\s]*\.youzan\.com',
     r'https?://qima\.feishu\.cn',
 )
+
+HELP_CENTER_CONSULTING_PATTERN = re.compile(
+    r"(怎么做|如何配置|如何设置|如何开通|在哪设置|哪里设置|流程是什么|怎么处理|"
+    r"能否使用|是否支持|可以.*吗|能.*吗|有哪些方式|有什么区别|优先级|规则|叠加)",
+    re.IGNORECASE,
+)
+
+
+def _detect_help_center_route(text: str, user_message: str) -> Optional[InternalRouteResult]:
+    product_hits = {term for term in HELP_CENTER_PRODUCT_TERMS if term in text}
+    business_hits = {term for term in HELP_CENTER_BUSINESS_TERMS if term in text}
+    has_consulting_intent = bool(HELP_CENTER_CONSULTING_PATTERN.search(user_message))
+
+    if product_hits and has_consulting_intent:
+        return InternalRouteResult(
+            route_type=RouteType.FORCED_SKILL,
+            skill_id="company-help-center",
+            request=user_message,
+            resource_type="help_center",
+            confidence="high",
+            reason="help_center_product_term_with_consulting_intent",
+        )
+
+    if len(business_hits) >= 2 and has_consulting_intent:
+        return InternalRouteResult(
+            route_type=RouteType.FORCED_SKILL,
+            skill_id="company-help-center",
+            request=user_message,
+            resource_type="help_center",
+            confidence="high",
+            reason="help_center_multiple_business_terms_with_consulting_intent",
+        )
+
+    if {"限时折扣", "满减送"} <= business_hits and ("叠加" in text or "优先级" in text):
+        return InternalRouteResult(
+            route_type=RouteType.FORCED_SKILL,
+            skill_id="company-help-center",
+            request=user_message,
+            resource_type="help_center",
+            confidence="high",
+            reason="help_center_marketing_overlap_rule",
+        )
+
+    return None
 
 
 def detect_company_resource_route(user_message: str) -> InternalRouteResult:
@@ -97,6 +210,10 @@ def detect_company_resource_route(user_message: str) -> InternalRouteResult:
             confidence="high",
             reason="trace_id_with_app_name"
         )
+
+    help_center_route = _detect_help_center_route(text, user_message)
+    if help_center_route is not None:
+        return help_center_route
 
     # 规则 2: 强内部系统名单独出现 -> internal_priority_route
     for system in STRONG_INTERNAL_SYSTEMS:
@@ -215,6 +332,56 @@ def format_company_route_result(skill_id: str, parsed_result: dict) -> str:
             lines = [f'已查询 JIRA：`{jira_id}`', '', _truncate(stdout, 4000)]
             return '\n'.join(lines)
         return f'已执行 JIRA 查询：`{jira_id}`，但没有解析到可展示内容。'
+
+    if skill_id == 'company-help-center':
+        search_result = parsed_result.get('search_result', {}) if isinstance(parsed_result, dict) else {}
+        docs = search_result.get('data')
+        if not isinstance(docs, list):
+            docs = _try_parse_json(search_result.get('stdout', '')) or []
+
+        if not docs:
+            return '知识库未找到相关内容。'
+
+        query = parsed_result.get('request', '')
+        query_markers = [
+            marker
+            for marker in ('限时折扣', '满减送', '满减', '秒杀', '有赞CRM', '微商城', '零售', '订单', '配送')
+            if marker in query
+        ]
+
+        def doc_rank(doc: dict) -> tuple[int, float]:
+            haystack = f"{doc.get('title', '')}\n{doc.get('origin_content', '')}"
+            overlap = sum(1 for marker in query_markers if marker in haystack)
+            return (overlap, float(doc.get('score') or 0))
+
+        ranked_docs = sorted(docs, key=doc_rank, reverse=True)
+        primary = ranked_docs[0]
+        excerpt = _truncate(
+            primary.get('origin_content', '').replace('title:', '').replace('content:', ''),
+            600,
+        )
+        url = primary.get('help_center_url', '')
+
+        lines = [
+            '> **【工作流执行日志】**',
+            '> 1. 业务问题识别：命中 `company-help-center`',
+            f'> 2. 知识库检索：找到 `{len(ranked_docs)}` 条候选结果',
+            f'> 3. 最佳匹配：`{primary.get("title", "")}`',
+            '',
+            primary.get('title', '知识库结果'),
+            excerpt,
+        ]
+        if url:
+            lines.extend(['', f'参考文档：[打开帮助中心文档]({url})'])
+
+        if len(ranked_docs) > 1:
+            lines.extend(['', '其他候选：'])
+            for item in ranked_docs[1:3]:
+                other_url = item.get('help_center_url', '')
+                suffix = f' - {other_url}' if other_url else ''
+                lines.append(f"- {item.get('title', '未命名文档')}{suffix}")
+
+        return '\n'.join(lines)
 
     if parsed_result.get('stdout'):
         return _truncate(parsed_result.get('stdout', ''), 4000)

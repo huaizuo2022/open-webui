@@ -84,10 +84,13 @@ async def reserve_chat_allowance(
 
 
 async def confirm_chat_allowance(
-    reservation: BillingReservation,
+    reservation: BillingReservation | None,
     chat_id: str | None = None,
     message_id: str | None = None,
 ):
+    if reservation is None:
+        return
+
     if reservation.kind == 'credit' and reservation.user_id:
         account = await Credits.get_or_create_account(reservation.user_id)
         await Credits.create_transaction(
@@ -103,7 +106,10 @@ async def confirm_chat_allowance(
         )
 
 
-async def rollback_chat_allowance(reservation: BillingReservation, reason: str):
+async def rollback_chat_allowance(reservation: BillingReservation | None, reason: str):
+    if reservation is None:
+        return
+
     if reservation.kind == 'free_quota':
         await Credits.restore_free_quota(reservation.subject_type, reservation.subject_id)
         return
@@ -128,7 +134,7 @@ async def rollback_chat_allowance(reservation: BillingReservation, reason: str):
 
 async def wrap_streaming_response_for_billing(
     iterator: AsyncIterator,
-    reservation: BillingReservation,
+    reservation: BillingReservation | None,
     chat_id: str | None = None,
 ) -> AsyncIterator:
     try:

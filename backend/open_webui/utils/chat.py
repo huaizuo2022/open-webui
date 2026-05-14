@@ -331,7 +331,7 @@ async def chat_completed(request: Request, form_data: dict, user: Any):
     except HTTPException:
         raise
     except Exception as e:
-        raise Exception(f'Error: {e}')
+        log.debug(f'Legacy chat_completed pipeline outlet filter error: {e}')
 
     if not data.get('id'):
         raise Exception('Missing message id')
@@ -366,4 +366,5 @@ async def chat_completed(request: Request, form_data: dict, user: Any):
         )
         return result
     except Exception as e:
-        raise Exception(f'Error: {e}')
+        log.debug(f'Legacy chat_completed function outlet filter error: {e}')
+        return data

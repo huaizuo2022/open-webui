@@ -6,6 +6,7 @@
 
 	import { getUsage } from '$lib/apis';
 	import { getSessionUser, userSignOut } from '$lib/apis/auths';
+	import { redeemCreditsCode } from '$lib/apis/credits';
 
 	import {
 		showSettings,
@@ -14,7 +15,8 @@
 		showShortcuts,
 		user,
 		config,
-		settings
+		settings,
+		redeemCodeModal
 	} from '$lib/stores';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
@@ -40,6 +42,7 @@ import PinSlash from '$lib/components/icons/PinSlash.svelte';
 import { updateUserStatus, updateUserSettings } from '$lib/apis/users';
 import { toast } from 'svelte-sonner';
 import AuthModal from '$lib/components/common/AuthModal.svelte';
+import RedeemCodeModal from '$lib/components/chat/RedeemCodeModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -56,6 +59,7 @@ import AuthModal from '$lib/components/common/AuthModal.svelte';
 
 	let showUserStatusModal = false;
 	let showAuthModal = false;
+	let redeemingCode = false;
 	let shiftKey = false;
 
 	const dispatch = createEventDispatcher();
@@ -124,6 +128,33 @@ import AuthModal from '$lib/components/common/AuthModal.svelte';
 	bind:show={showAuthModal}
 	on:success={async (e) => {
 		show = false;
+	}}
+/>
+<RedeemCodeModal
+	bind:show={$redeemCodeModal}
+	loading={redeemingCode}
+	balance={$user?.credit?.balance ?? 0}
+	freeChatUsed={$user?.credit?.free_chat_used ?? 0}
+	freeChatLimit={$user?.credit?.free_chat_limit ?? 0}
+	on:submit={async (event) => {
+		redeemingCode = true;
+		try {
+			await redeemCreditsCode(localStorage.token, event.detail.code);
+			user.set(await getSessionUser(localStorage.token));
+			toast.success($i18n.t('Redeem code applied successfully'));
+			redeemCodeModal.set(false);
+		} catch (error) {
+			const message = String(error ?? '');
+			if (message.includes('SIGN_IN_REQUIRED_FOR_REDEEM')) {
+				redeemCodeModal.set(false);
+				showAuthModal = true;
+				toast.error($i18n.t('Please sign in before redeeming a code.'));
+			} else {
+				toast.error(message);
+			}
+		} finally {
+			redeemingCode = false;
+		}
 	}}
 />
 
@@ -262,6 +293,29 @@ import AuthModal from '$lib/components/common/AuthModal.svelte';
 					<Settings className="w-5 h-5" strokeWidth="1.5" />
 				</div>
 				<div class=" self-center truncate">{$i18n.t('Settings')}</div>
+			</button>
+
+			<button
+				class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer select-none"
+				type="button"
+				on:click={() => {
+					show = false;
+					if (isGuest) {
+						showAuthModal = true;
+						toast.error($i18n.t('Please sign in before redeeming a code.'));
+						return;
+					}
+					redeemCodeModal.set(true);
+				}}
+			>
+				<div class=" self-center mr-3">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5v10.5H3.75V6.75Zm0 0 3-3h10.5l3 3M7.5 12h.008v.008H7.5V12Zm3 0h6" />
+					</svg>
+				</div>
+				<div class=" self-center truncate">
+					{$i18n.t('Redeem Code')}
+				</div>
 			</button>
 
 			{#if role === 'admin'}

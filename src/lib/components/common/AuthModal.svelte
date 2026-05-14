@@ -4,13 +4,15 @@
 
 	import { toast } from 'svelte-sonner';
 
+	import { getBackendConfig } from '$lib/apis';
 	import { getSessionUser, userSignIn, userSignUp, sendVerificationCode, signInWithCode } from '$lib/apis/auths';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { config, user, socket } from '$lib/stores';
 
-import { generateInitialsImage, getUserTimezone } from '$lib/utils';
-  import { updateUserTimezone } from '$lib/apis/auths';
+	import { generateInitialsImage, getUserTimezone } from '$lib/utils';
+	import { updateUserTimezone } from '$lib/apis/auths';
 
+	import Modal from '$lib/components/common/Modal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 
@@ -166,16 +168,13 @@ import { generateInitialsImage, getUserTimezone } from '$lib/utils';
 </script>
 
 {#if show}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		on:click|self={() => {
-			show = false;
-		}}
+	<Modal
+		bind:show
+		size="sm"
+		containerClassName="p-4"
+		className="rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
 	>
-		<div
-			class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
-			on:keydown={handleKeydown}
-		>
+		<div on:keydown={handleKeydown}>
 			<div class="mb-6 text-center">
 				<h2 class="text-2xl font-semibold text-gray-900 dark:text-white">
 					{#if mode === 'signin'}
@@ -370,5 +369,5 @@ import { generateInitialsImage, getUserTimezone } from '$lib/utils';
 				{$i18n.t('Cancel')}
 			</button>
 		</div>
-	</div>
+	</Modal>
 {/if}

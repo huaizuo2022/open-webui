@@ -59,7 +59,6 @@
 	import { getChatById } from '$lib/apis/chats';
 	import { getSessionUser } from '$lib/apis/auths';
 	import { getTools } from '$lib/apis/tools';
-	import { redeemCreditsCode } from '$lib/apis/credits';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 	import { getOAuthClientAuthorizationUrl } from '$lib/apis/configs';
@@ -102,7 +101,6 @@
 	import Expand from '../icons/Expand.svelte';
 	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
 	import TaskList from './Messages/ResponseMessage/TaskList.svelte';
-	import RedeemCodeModal from './RedeemCodeModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -460,8 +458,6 @@
 	let inputFiles;
 
 	let showInputModal = false;
-	let redeemingCode = false;
-
 	export let dragged = false;
 	let shiftKey = false;
 
@@ -1124,28 +1120,6 @@
 </script>
 
 <ToolServersModal bind:show={showTools} {selectedToolIds} />
-
-<RedeemCodeModal
-	bind:show={$redeemCodeModal}
-	loading={redeemingCode}
-	balance={$_user?.credit?.balance ?? 0}
-	freeChatUsed={$_user?.credit?.free_chat_used ?? 0}
-	freeChatLimit={$_user?.credit?.free_chat_limit ?? 0}
-	on:submit={async (event) => {
-		redeemingCode = true;
-		try {
-			await redeemCreditsCode(localStorage.token, event.detail.code);
-			const refreshedUser = await getSessionUser(localStorage.token);
-			_user.set(refreshedUser);
-			toast.success($i18n.t('Redeem code applied successfully'));
-			redeemCodeModal.set(false);
-		} catch (error) {
-			toast.error(String(error ?? ''));
-		} finally {
-			redeemingCode = false;
-		}
-	}}
-/>
 
 <InputVariablesModal
 	bind:show={showInputVariablesModal}

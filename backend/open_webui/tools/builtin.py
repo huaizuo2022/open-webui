@@ -50,7 +50,23 @@ log = logging.getLogger(__name__)
 
 MAX_KNOWLEDGE_BASE_SEARCH_ITEMS = 10_000
 LOCAL_COMMAND_TIMEOUT_SECONDS = 120
-SUPPORTED_INTERNAL_SKILLS = {'zan-log-query', 'feishu-wiki-skill', 'zan-jira'}
+SUPPORTED_INTERNAL_SKILLS = {'zan-log-query', 'feishu-wiki-skill', 'zan-jira', 'company-help-center'}
+HELP_CENTER_PRODUCT_LINE_MAP = {
+    '有赞crm': '有赞CRM',
+    'crm': '有赞CRM',
+    '微商城': '微商城',
+    '零售': '零售',
+    '美业': '美业',
+    '教育': '教育',
+    '导购助手': '导购助手',
+    '导购': '导购助手',
+    '企微助手': '企微助手',
+    '企微': '企微助手',
+    '群团团': '群团团',
+    'allvalue': 'allvalue',
+    '分销市场': '分销市场',
+    '有赞云': '有赞云',
+}
 
 # =============================================================================
 # TIME UTILITIES
@@ -167,6 +183,40 @@ def _run_lark_cli_json(args: list[str], cwd: Path, timeout_seconds: int) -> dict
     }
 
 
+def _resolve_internal_skill_dir(skill_id: str) -> Optional[Path]:
+    candidates = [
+        Path.home() / '.codex' / 'skills' / skill_id,
+        Path.home() / '.zode' / 'skills' / skill_id,
+        Path.home() / '.claude' / 'skills' / skill_id,
+        Path('/Users/shang/Dev/trade/zan-skills-karpathy-guard/skills') / skill_id,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _infer_help_center_product_line(request: str) -> str:
+    lowered = request.lower()
+    for keyword, product_line in HELP_CENTER_PRODUCT_LINE_MAP.items():
+        if keyword in lowered:
+            return product_line
+    return ""
+
+
+def _run_skill_script_json(command: str, cwd: Path, timeout_seconds: int) -> dict:
+    result = _run_subprocess(command, cwd, timeout_seconds)
+    stdout = (result.get('stdout') or '').strip()
+    parsed = None
+    if stdout:
+        try:
+            parsed = json.loads(stdout)
+        except json.JSONDecodeError:
+            parsed = None
+    result['data'] = parsed
+    return result
+
+
 def _execute_internal_skill_request(skill_id: str, request: str, cwd: Path, timeout_seconds: int) -> dict:
     if skill_id == 'zan-log-query':
         trace_id = _extract_trace_id(request)
@@ -265,6 +315,30 @@ def _execute_internal_skill_request(skill_id: str, request: str, cwd: Path, time
             'view_result': view_result,
         }
 
+    if skill_id == 'company-help-center':
+        skill_dir = _resolve_internal_skill_dir(skill_id)
+        if not skill_dir:
+            return {'error': 'company-help-center skill directory not found', 'skill_id': skill_id, 'request': request}
+
+        pre_execute = _run_subprocess(
+            f'bash "{skill_dir / "scripts" / "pre-execute.sh"}" company-help-center',
+            cwd,
+            timeout_seconds,
+        )
+        product_line = _infer_help_center_product_line(request)
+        search_result = _run_skill_script_json(
+            f'SKILL_DIR="{skill_dir}" bash "{skill_dir / "scripts" / "search.sh"}" "{request}" "{product_line}" ""',
+            cwd,
+            timeout_seconds,
+        )
+        return {
+            'skill_id': skill_id,
+            'request': request,
+            'product_line': product_line,
+            'pre_execute': pre_execute,
+            'search_result': search_result,
+        }
+
     return {'error': f'Unsupported internal skill: {skill_id}', 'skill_id': skill_id, 'request': request}
 
 
@@ -280,7 +354,7 @@ async def execute_internal_skill_request(
     Execute a supported internal company skill request directly on this machine.
     Prefer this tool when the user asks to query internal systems like Tianwang logs or Feishu wiki docs.
 
-    Supported skill ids: zan-log-query, feishu-wiki-skill, zan-jira.
+    Supported skill ids: zan-log-query, feishu-wiki-skill, zan-jira, company-help-center.
 
     :param skill_id: Internal skill id to execute.
     :param request: Original user request text.
