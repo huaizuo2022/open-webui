@@ -27,6 +27,7 @@
 	import Knowledge from './InputMenu/Knowledge.svelte';
 	import AttachWebpageModal from './AttachWebpageModal.svelte';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
+	import Sparkles from '$lib/components/icons/Sparkles.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -43,6 +44,7 @@
 	export let uploadOneDriveHandler: Function;
 
 	export let onUpload: Function;
+	export let openFeishuAuthModal: Function = () => {};
 	export let onClose: Function;
 
 	let show = false;
@@ -207,6 +209,18 @@
 							<div class="line-clamp-1">{$i18n.t('Attach Webpage')}</div>
 						</button>
 					</Tooltip>
+
+					<button
+						class="flex w-full gap-2 items-center px-3 py-1.5 text-sm select-none cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+						type="button"
+						on:click={() => {
+							openFeishuAuthModal();
+							show = false;
+						}}
+					>
+						<Sparkles />
+						<div class="line-clamp-1">{$i18n.t('Authorize Feishu Search')}</div>
+					</button>
 
 					<Tooltip
 						content={fileUploadCapableModels.length !== selectedModels.length

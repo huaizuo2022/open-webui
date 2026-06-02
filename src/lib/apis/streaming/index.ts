@@ -4,8 +4,10 @@ import type { ParsedEvent } from 'eventsource-parser';
 type TextStreamUpdate = {
 	done: boolean;
 	value: string;
+	content?: string;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	sources?: any;
+	chatId?: string;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	selectedModelId?: any;
 	error?: any;
@@ -22,6 +24,9 @@ type ResponseUsage = {
 	/** Any other fields that aren't part of the base OpenAI spec */
 	[other: string]: unknown;
 };
+
+export const isOpenAITextStreamResponse = (response: Response): boolean =>
+	response.headers.get('content-type')?.includes('text/event-stream') ?? false;
 
 // createOpenAITextStream takes a responseBody with a SSE response,
 // and returns an async generator that emits delta updates with large deltas chunked into random sized chunks
@@ -43,6 +48,21 @@ export async function createOpenAITextStream(
 async function* openAIStreamToIterator(
 	reader: ReadableStreamDefaultReader<ParsedEvent>
 ): AsyncGenerator<TextStreamUpdate> {
+	let reasoningContent = '';
+	let assistantContent = '';
+
+	const formatReasoning = (content: string) => {
+		const escaped = content
+			.replaceAll('&', '&amp;')
+			.replaceAll('<', '&lt;')
+			.replaceAll('>', '&gt;')
+			.split('\n')
+			.map((line) => (line.startsWith('>') ? line : `> ${line}`))
+			.join('\n');
+
+		return `<details type="reasoning" done="false">\n<summary>Thinking…</summary>\n${escaped}\n</details>`;
+	};
+
 	while (true) {
 		const { value, done } = await reader.read();
 		if (done) {
@@ -72,6 +92,11 @@ async function* openAIStreamToIterator(
 				continue;
 			}
 
+			if (parsedData.chat_id) {
+				yield { done: false, value: '', chatId: parsedData.chat_id };
+				continue;
+			}
+
 			if (parsedData.selected_model_id) {
 				yield { done: false, value: '', selectedModelId: parsedData.selected_model_id };
 				continue;
@@ -82,9 +107,44 @@ async function* openAIStreamToIterator(
 				continue;
 			}
 
+			if (typeof parsedData.content === 'string') {
+				yield { done: false, value: '', content: parsedData.content };
+				continue;
+			}
+
+			const choice = parsedData.choices?.[0] ?? {};
+			const messageContent = choice?.message?.content;
+			if (typeof messageContent === 'string') {
+				yield { done: false, value: '', content: messageContent };
+				continue;
+			}
+
+			const delta = choice?.delta ?? {};
+			const nextReasoningContent = delta.reasoning_content ?? '';
+			if (nextReasoningContent) {
+				reasoningContent += nextReasoningContent;
+				yield {
+					done: false,
+					value: '',
+					content: `${formatReasoning(reasoningContent)}${assistantContent}`
+				};
+				continue;
+			}
+
+			const nextContent = delta.content ?? '';
+			if (nextContent && reasoningContent) {
+				assistantContent += nextContent;
+				yield {
+					done: false,
+					value: '',
+					content: `${formatReasoning(reasoningContent)}${assistantContent}`
+				};
+				continue;
+			}
+
 			yield {
 				done: false,
-				value: parsedData.choices?.[0]?.delta?.content ?? ''
+				value: nextContent
 			};
 		} catch (e) {
 			console.error('Error extracting delta from SSE event:', e);
@@ -111,11 +171,19 @@ async function* streamLargeDeltasAsRandomChunks(
 			yield textStreamUpdate;
 			continue;
 		}
+		if (textStreamUpdate.chatId) {
+			yield textStreamUpdate;
+			continue;
+		}
 		if (textStreamUpdate.selectedModelId) {
 			yield textStreamUpdate;
 			continue;
 		}
 		if (textStreamUpdate.usage) {
+			yield textStreamUpdate;
+			continue;
+		}
+		if (typeof textStreamUpdate.content === 'string') {
 			yield textStreamUpdate;
 			continue;
 		}

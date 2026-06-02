@@ -97,7 +97,8 @@ export const getSkillItems = async (
 	token: string = '',
 	query: string | null = null,
 	viewOption: string | null = null,
-	page: number | null = null
+	page: number | null = null,
+	excludeBuiltin: boolean = false
 ) => {
 	let error = null;
 
@@ -105,6 +106,7 @@ export const getSkillItems = async (
 	if (query) searchParams.append('query', query);
 	if (viewOption) searchParams.append('view_option', viewOption);
 	if (page) searchParams.append('page', page.toString());
+	if (excludeBuiltin) searchParams.append('exclude_builtin', 'true');
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/skills/list?${searchParams.toString()}`, {
 		method: 'GET',

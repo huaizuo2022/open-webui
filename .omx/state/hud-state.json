@@ -1,6 +1,6 @@
 {
-  "last_turn_at": "2026-05-08T12:53:08.381Z",
-  "turn_count": 21,
-  "last_progress_at": "2026-05-08T12:53:08.381Z",
-  "last_agent_output": "{\"suggestions\":[{\"title\":\"Make the relay GPT models appear in the picker automatically\",\"description"
+  "last_turn_at": "2026-05-21T06:26:20.546Z",
+  "turn_count": 100,
+  "last_progress_at": "2026-05-21T06:26:20.546Z",
+  "last_agent_output": "目前我**没查到 `lark-cli docs +search` 这个接口公开文档里明确写的“每分钟多少次”**。\n\n我能确认的只有两点：\n\n- `lark-cli docs +search` 本地帮"
 }

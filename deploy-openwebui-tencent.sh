@@ -89,7 +89,7 @@ DATA_DIR=/var/www/open-webui-anon/data
 FRONTEND_BUILD_DIR=/var/www/open-webui-anon/build
 OPENAI_API_BASE_URL=
 OPENAI_API_KEY=
-DEFAULT_MODELS=gpt-5.4
+DEFAULT_MODELS=DeepSeek-v4-pro
 EOF
 
 sudo chown -R "$APP_USER:$APP_USER" "$REMOTE_PATH"

@@ -122,7 +122,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from open_webui.internal.db import ScopedSession, engine, get_async_session
 
 from open_webui.models.functions import Functions
-from open_webui.models.models import Models
+from open_webui.models.access_grants import AccessGrants
+from open_webui.models.models import ModelForm, ModelMeta, ModelParams, Models
 from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats, ChatForm
 from open_webui.tools.builtin import execute_internal_skill_request
@@ -133,6 +134,11 @@ from open_webui.utils.company_resources import (
 from open_webui.utils.internal_scope_guard import (
     decide_internal_scope,
     enforce_internal_only_form_data,
+)
+from open_webui.utils.internal_evidence import (
+    apply_internal_evidence_to_form_data,
+    build_internal_evidence_warning_text,
+    collect_internal_evidence,
 )
 from open_webui.utils.internal_priority_prompt import apply_internal_priority_to_form_data
 from open_webui.utils.misc import (
@@ -644,6 +650,66 @@ logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
 
+def _configured_default_model_ids() -> list[str]:
+    model_ids: list[str] = []
+    for raw_value in (
+        app.state.config.DEFAULT_MODELS,
+        app.state.config.DEFAULT_PINNED_MODELS,
+    ):
+        if not raw_value:
+            continue
+        for model_id in str(raw_value).split(','):
+            model_id = model_id.strip()
+            if model_id and model_id not in model_ids:
+                model_ids.append(model_id)
+    return model_ids
+
+
+async def ensure_configured_default_model_access() -> None:
+    owner = await Users.get_user_by_email('guest@localhost')
+    if owner is None:
+        owner = await Users.get_first_user()
+
+    if owner is None:
+        return
+
+    for model_id in _configured_default_model_ids():
+        model = await Models.get_model_by_id(model_id)
+        if model is None:
+            model = await Models.insert_new_model(
+                ModelForm(
+                    id=model_id,
+                    name=model_id,
+                    meta=ModelMeta(description='Configured default chat model.', capabilities={}),
+                    params=ModelParams(),
+                    access_grants=[
+                        {
+                            'principal_type': 'user',
+                            'principal_id': '*',
+                            'permission': 'read',
+                        }
+                    ],
+                ),
+                owner.id,
+            )
+        elif not any(
+            grant.principal_type == 'user' and grant.principal_id == '*' and grant.permission == 'read'
+            for grant in model.access_grants
+        ):
+            await AccessGrants.set_access_grants(
+                'model',
+                model_id,
+                [
+                    *[grant.model_dump() for grant in model.access_grants],
+                    {
+                        'principal_type': 'user',
+                        'principal_id': '*',
+                        'permission': 'read',
+                    },
+                ],
+            )
+
+
 class SPAStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         try:
@@ -698,6 +764,8 @@ async def lifespan(app: FastAPI):
 
     if SAFE_MODE:
         await Functions.deactivate_all_functions()
+
+    await ensure_configured_default_model_access()
 
     # This should be blocking (sync) so functions are not deactivated on first /get_models calls
     # when the first user lands on the / route.
@@ -1862,6 +1930,8 @@ async def chat_completion(
             form_data, metadata = enforce_internal_only_form_data(form_data, metadata)
             scope_decision = decide_internal_scope(extract_user_message_text(form_data, metadata))
             forced_company_route = scope_decision.route
+            pre_collected_evidence = []
+            internal_evidence_warnings = []
 
             if not scope_decision.allowed:
                 log.info(
@@ -1934,58 +2004,73 @@ async def chat_completion(
                         forced_company_route.skill_id,
                         parsed_result,
                     )
-                    forced_form_data = {
-                        **form_data,
-                        'messages': form_data.get('messages', []),
-                    }
-                    forced_tasks = None
-                    log.info(
-                        'Forced company route completed: skill=%s, chat_id=%s, message_id=%s, content_len=%s',
-                        forced_company_route.skill_id,
-                        metadata.get('chat_id'),
-                        metadata.get('message_id'),
-                        len(formatted_message),
-                    )
-                    if metadata.get('chat_id') and metadata.get('message_id') and not metadata['chat_id'].startswith('local:'):
-                        await Chats.upsert_message_to_chat_by_id_and_message_id(
-                            metadata['chat_id'],
-                            metadata['message_id'],
+                    if forced_company_route.skill_id == 'company-help-center':
+                        log.info(
+                            'Forced company route converted to internal evidence aggregation: chat_id=%s message_id=%s',
+                            metadata.get('chat_id'),
+                            metadata.get('message_id'),
+                        )
+                        pre_collected_evidence.append(
                             {
-                                'id': metadata['message_id'],
-                                'parentId': metadata.get('user_message_id', None),
-                                'done': True,
-                                'role': 'assistant',
+                                'source': forced_company_route.skill_id,
+                                'source_label': 'company-help-center',
                                 'content': formatted_message,
-                                'model': form_data['model'],
-                                'sources': [
-                                    {
-                                        'source': {
-                                            'name': f"forced-route:{forced_company_route.skill_id}",
-                                        },
-                                        'document': [formatted_message],
-                                        'metadata': [parsed_result],
-                                        'tool_result': True,
-                                    }
-                                ],
-                            },
+                            }
                         )
-                    if form_data.get('stream'):
-                        response = build_forced_route_stream_response(form_data['model'], formatted_message)
+                        form_data, metadata = apply_internal_priority_to_form_data(form_data, metadata)
                     else:
-                        response = openai_chat_completion_message_template(
-                            form_data['model'],
-                            message=formatted_message,
+                        forced_form_data = {
+                            **form_data,
+                            'messages': form_data.get('messages', []),
+                        }
+                        forced_tasks = None
+                        log.info(
+                            'Forced company route completed: skill=%s, chat_id=%s, message_id=%s, content_len=%s',
+                            forced_company_route.skill_id,
+                            metadata.get('chat_id'),
+                            metadata.get('message_id'),
+                            len(formatted_message),
                         )
-                    ctx = await build_chat_response_context(
-                        request,
-                        forced_form_data,
-                        user,
-                        model,
-                        metadata,
-                        forced_tasks,
-                        [],
-                    )
-                    return await process_chat_response(response, ctx)
+                        if metadata.get('chat_id') and metadata.get('message_id') and not metadata['chat_id'].startswith('local:'):
+                            await Chats.upsert_message_to_chat_by_id_and_message_id(
+                                metadata['chat_id'],
+                                metadata['message_id'],
+                                {
+                                    'id': metadata['message_id'],
+                                    'parentId': metadata.get('user_message_id', None),
+                                    'done': True,
+                                    'role': 'assistant',
+                                    'content': formatted_message,
+                                    'model': form_data['model'],
+                                    'sources': [
+                                        {
+                                            'source': {
+                                                'name': f"forced-route:{forced_company_route.skill_id}",
+                                            },
+                                            'document': [formatted_message],
+                                            'metadata': [parsed_result],
+                                            'tool_result': True,
+                                        }
+                                    ],
+                                },
+                            )
+                        if form_data.get('stream'):
+                            return build_forced_route_stream_response(form_data['model'], formatted_message)
+                        else:
+                            response = openai_chat_completion_message_template(
+                                form_data['model'],
+                                message=formatted_message,
+                            )
+                        ctx = await build_chat_response_context(
+                            request,
+                            forced_form_data,
+                            user,
+                            model,
+                            metadata,
+                            forced_tasks,
+                            [],
+                        )
+                        return await process_chat_response(response, ctx)
 
             elif forced_company_route and forced_company_route.route_type == RouteType.INTERNAL_PRIORITY:
                 log.info(
@@ -1994,6 +2079,40 @@ async def chat_completion(
                     metadata.get('message_id'),
                 )
                 form_data, metadata = apply_internal_priority_to_form_data(form_data, metadata)
+
+            user_message_text = extract_user_message_text(form_data, metadata)
+            evidence_items, evidence_warnings = await collect_internal_evidence(
+                user_message_text,
+                forced_company_route,
+                execute_internal_skill_request,
+            )
+            internal_evidence_warnings = evidence_warnings or []
+            if pre_collected_evidence:
+                existing_sources = {item.get('source') for item in pre_collected_evidence}
+                evidence_items = [
+                    *pre_collected_evidence,
+                    *[item for item in evidence_items if item.get('source') not in existing_sources],
+                ]
+            if evidence_items:
+                log.info(
+                    'Collected internal evidence: sources=%s chat_id=%s message_id=%s',
+                    [item.get('source') for item in evidence_items],
+                    metadata.get('chat_id'),
+                    metadata.get('message_id'),
+                )
+                form_data, metadata = apply_internal_evidence_to_form_data(
+                    form_data,
+                    evidence_items,
+                    metadata,
+                )
+            if internal_evidence_warnings:
+                metadata['internal_evidence_warnings'] = internal_evidence_warnings
+                warning_text = build_internal_evidence_warning_text(internal_evidence_warnings)
+                if warning_text:
+                    form_data['messages'] = [
+                        {'role': 'system', 'content': warning_text},
+                        *form_data.get('messages', []),
+                    ]
 
             form_data, metadata, events = await process_chat_payload(request, form_data, user, metadata, model)
 

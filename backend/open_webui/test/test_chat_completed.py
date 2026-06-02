@@ -15,13 +15,13 @@ class ChatCompletedTests(unittest.TestCase):
         from open_webui.utils.chat import chat_completed
 
         request = SimpleNamespace(
-            app=SimpleNamespace(state=SimpleNamespace(MODELS={'gpt-5.4': {'id': 'gpt-5.4'}})),
+            app=SimpleNamespace(state=SimpleNamespace(MODELS={'DeepSeek-v4-pro': {'id': 'DeepSeek-v4-pro'}})),
             state=SimpleNamespace(),
         )
         user = SimpleNamespace(id='user-1', email='guest@localhost', name='Guest', role='admin')
         form_data = {
             'id': 'message-1',
-            'model': 'gpt-5.4',
+            'model': 'DeepSeek-v4-pro',
             'chat_id': 'chat-1',
             'session_id': 'session-1',
             'messages': [{'id': 'message-1', 'role': 'assistant', 'content': '你好'}],

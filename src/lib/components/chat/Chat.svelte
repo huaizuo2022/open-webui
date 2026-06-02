@@ -91,7 +91,7 @@
 	} from '$lib/apis';
 	import { getTools } from '$lib/apis/tools';
 	import { uploadFile } from '$lib/apis/files';
-	import { createOpenAITextStream } from '$lib/apis/streaming';
+	import { createOpenAITextStream, isOpenAITextStreamResponse } from '$lib/apis/streaming';
 	import { getFunctions } from '$lib/apis/functions';
 	import { updateFolderById } from '$lib/apis/folders';
 
@@ -2084,6 +2084,27 @@
 		}
 	};
 
+	const bindGeneratedChatId = async (generatedChatId: string, responseMessageId: string) => {
+		if (!generatedChatId || generatedChatId.startsWith('local:')) {
+			return;
+		}
+
+		if ($chatId && $chatId === generatedChatId) {
+			return;
+		}
+
+		await chatId.set(generatedChatId);
+		window.history.replaceState(history.state, '', `/c/${generatedChatId}`);
+
+		if (history.messages[responseMessageId]) {
+			history.currentId = responseMessageId;
+		}
+
+		currentChatPage.set(1);
+		await chats.set(await getChatList(localStorage.token, $currentChatPage));
+		selectedFolder.set(null);
+	};
+
 	const getFeatures = () => {
 		let features = {};
 
@@ -2390,7 +2411,7 @@
 				return null;
 			});
 
-		if (streamRes && streamRes.ok && streamRes.body) {
+		if (streamRes && streamRes.ok && streamRes.body && isOpenAITextStreamResponse(streamRes)) {
 			generationController = controller as AbortController;
 			generating = true;
 			const textStream = await createOpenAITextStream(
@@ -2399,10 +2420,16 @@
 			);
 
 			for await (const update of textStream) {
-				const { value, done, sources, error, selectedModelId, usage } = update;
+				const { value, content, done, sources, error, chatId, selectedModelId, usage } = update;
 
 				if (sources && !responseMessage?.sources) {
 					responseMessage.sources = sources;
+				}
+
+				if (chatId) {
+					await bindGeneratedChatId(chatId, responseMessageId);
+					_chatId = chatId;
+					continue;
 				}
 
 				if (selectedModelId) {
@@ -2434,11 +2461,13 @@
 					break;
 				}
 
-				if (responseMessage.content == '' && value == '\n') {
+				if (typeof content === 'string') {
+					responseMessage.content = content;
+				} else if (responseMessage.content == '' && value == '\n') {
 					continue;
+				} else {
+					responseMessage.content += value;
 				}
-
-				responseMessage.content += value;
 				history.messages[responseMessage.id] = responseMessage;
 				await tick();
 				if (autoScroll) {
@@ -2447,6 +2476,13 @@
 			}
 		} else if (streamRes) {
 			const res = await streamRes.json().catch(() => null);
+			if (res?.chat_id) {
+				await bindGeneratedChatId(res.chat_id, responseMessageId);
+				_chatId = res.chat_id;
+			}
+			if (res?.task_ids) {
+				taskIds = res.task_ids;
+			}
 			if (res?.error) {
 				await handleOpenAIError(res.error, responseMessage);
 			}
@@ -2664,14 +2700,17 @@
 					Boolean($settings?.splitLargeChunks ?? false)
 				);
 				for await (const update of textStream) {
-					const { value, done, sources, error, usage } = update;
+					const { value, content, done, sources, error, usage } = update;
 					if (error || done) {
 						generating = false;
 						generationController = null;
 						break;
 					}
 
-					if (mergedResponse.content == '' && value == '\n') {
+					if (typeof content === 'string') {
+						mergedResponse.content = content;
+						history.messages[messageId] = message;
+					} else if (mergedResponse.content == '' && value == '\n') {
 						continue;
 					} else {
 						mergedResponse.content += value;

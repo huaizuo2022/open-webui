@@ -58,12 +58,12 @@
 	const loadSkillItems = async () => {
 		if (!loaded) return;
 
-		loading = true;
-		try {
-			const res = await getSkillItems(localStorage.token, query, viewOption, page).catch(
-				(error) => {
-					toast.error(`${error}`);
-					return null;
+			loading = true;
+			try {
+				const res = await getSkillItems(localStorage.token, query, viewOption, page, true).catch(
+					(error) => {
+						toast.error(`${error}`);
+						return null;
 				}
 			);
 

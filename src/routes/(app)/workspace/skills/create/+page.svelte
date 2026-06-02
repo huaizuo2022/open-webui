@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { skills } from '$lib/stores';
+	import { skills, user } from '$lib/stores';
 	import { onMount, getContext } from 'svelte';
 
 	const i18n = getContext('i18n');
@@ -34,6 +34,11 @@
 	};
 
 	onMount(async () => {
+		if ($user?.role !== 'admin' && !$user?.permissions?.workspace?.skills) {
+			goto('/workspace/skills');
+			return;
+		}
+
 		if (sessionStorage.skill) {
 			const _skill = JSON.parse(sessionStorage.skill);
 			sessionStorage.removeItem('skill');

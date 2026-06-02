@@ -101,6 +101,7 @@
 	import Expand from '../icons/Expand.svelte';
 	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
 	import TaskList from './Messages/ResponseMessage/TaskList.svelte';
+	import FeishuAuthModal from './MessageInput/FeishuAuthModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -458,6 +459,7 @@
 	let inputFiles;
 
 	let showInputModal = false;
+	let showFeishuAuthModal = false;
 	export let dragged = false;
 	let shiftKey = false;
 
@@ -1154,6 +1156,8 @@
 	}}
 />
 
+<FeishuAuthModal bind:show={showFeishuAuthModal} />
+
 {#if loaded}
 	<div class="w-full font-primary">
 		<div class=" mx-auto inset-x-0 bg-transparent flex justify-center">
@@ -1651,6 +1655,9 @@
 											} catch (error) {
 												console.error('OneDrive Error:', error);
 											}
+										}}
+										openFeishuAuthModal={() => {
+											showFeishuAuthModal = true;
 										}}
 										{onUpload}
 										onClose={async () => {

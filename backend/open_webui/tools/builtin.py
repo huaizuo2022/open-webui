@@ -50,7 +50,13 @@ log = logging.getLogger(__name__)
 
 MAX_KNOWLEDGE_BASE_SEARCH_ITEMS = 10_000
 LOCAL_COMMAND_TIMEOUT_SECONDS = 120
-SUPPORTED_INTERNAL_SKILLS = {'zan-log-query', 'feishu-wiki-skill', 'zan-jira', 'company-help-center'}
+SUPPORTED_INTERNAL_SKILLS = {
+    'zan-log-query',
+    'feishu-doc-read',
+    'zan-jira',
+    'company-help-center',
+    'feishu-doc-search',
+}
 HELP_CENTER_PRODUCT_LINE_MAP = {
     '有赞crm': '有赞CRM',
     'crm': '有赞CRM',
@@ -67,6 +73,33 @@ HELP_CENTER_PRODUCT_LINE_MAP = {
     '分销市场': '分销市场',
     '有赞云': '有赞云',
 }
+FEISHU_QUERY_DROP_TERMS = (
+    '公司',
+    '内部',
+    '我们',
+    '这个',
+    '那个',
+    '一下',
+    '下',
+    '请问',
+    '请教',
+    '帮我',
+    '帮忙',
+    '关于',
+    '有关',
+    '是啥',
+    '是什么',
+    '什么意思',
+    '是什么东西',
+    '怎么回事',
+    '吗',
+    '么',
+    '呢',
+    '啊',
+    '呀',
+    '吧',
+    '的',
+)
 
 # =============================================================================
 # TIME UTILITIES
@@ -204,6 +237,109 @@ def _infer_help_center_product_line(request: str) -> str:
     return ""
 
 
+def _extract_feishu_fallback_queries(request: str) -> list[str]:
+    text = (request or '').strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+
+    normalized = re.sub(r'[？?！!。，“”,,、:：;；（）()\[\]{}<>《》"\'`]+', ' ', text)
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if normalized and normalized != text:
+        candidates.append(normalized)
+
+    simplified = normalized
+    for term in FEISHU_QUERY_DROP_TERMS:
+        simplified = simplified.replace(term, ' ')
+    simplified = re.sub(r'\s+', ' ', simplified).strip()
+    if simplified and simplified not in candidates and simplified != text:
+        candidates.append(simplified)
+
+    token_burn_match = re.search(r'(token)\s*(?:的)?\s*(燃烧计划)', text, re.IGNORECASE)
+    if token_burn_match:
+        compact = f'{token_burn_match.group(1)} {token_burn_match.group(2)}'
+        if compact not in candidates and compact != text:
+            candidates.append(compact)
+
+    compact_text = re.sub(r'\s+', '', simplified)
+    if compact_text and compact_text != simplified and compact_text not in candidates:
+        candidates.append(compact_text)
+
+    return [candidate for candidate in candidates if candidate]
+
+
+def _feishu_search_has_results(result: dict) -> bool:
+    data = result.get('data')
+    if isinstance(data, dict):
+        result_data = data.get('data') or {}
+        results = result_data.get('results')
+        if isinstance(results, list) and results:
+            return True
+        items = result_data.get('items') or result_data.get('docs_entities')
+        if isinstance(items, list) and items:
+            return True
+    return False
+
+
+def _run_feishu_search_with_fallbacks(query: str, cwd: Path, timeout_seconds: int) -> tuple[dict, list[str], Optional[str]]:
+    attempted_queries = [query]
+    result = _run_lark_cli_json(
+        [
+            'lark-cli',
+            'docs',
+            '+search',
+            '--as',
+            'user',
+            '--query',
+            query,
+            '--format',
+            'json',
+        ],
+        cwd,
+        timeout_seconds,
+    )
+
+    search_error = None
+    data = result.get('data')
+    if result.get('exit_code', 0) != 0:
+        search_error = (result.get('stderr') or result.get('stdout') or 'lark-cli docs search failed').strip()
+        return result, attempted_queries, search_error
+    if isinstance(data, dict) and data.get('ok') is False:
+        api_error = data.get('error') or {}
+        search_error = api_error.get('message') or str(api_error) or 'lark-cli docs search failed'
+        return result, attempted_queries, search_error
+    if _feishu_search_has_results(result):
+        return result, attempted_queries, None
+
+    for fallback_query in _extract_feishu_fallback_queries(query):
+        attempted_queries.append(fallback_query)
+        fallback_result = _run_lark_cli_json(
+            [
+                'lark-cli',
+                'docs',
+                '+search',
+                '--as',
+                'user',
+                '--query',
+                fallback_query,
+                '--format',
+                'json',
+            ],
+            cwd,
+            timeout_seconds,
+        )
+        fallback_data = fallback_result.get('data')
+        if fallback_result.get('exit_code', 0) != 0:
+            continue
+        if isinstance(fallback_data, dict) and fallback_data.get('ok') is False:
+            continue
+        if _feishu_search_has_results(fallback_result):
+            return fallback_result, attempted_queries, None
+
+    return result, attempted_queries, None
+
+
 def _run_skill_script_json(command: str, cwd: Path, timeout_seconds: int) -> dict:
     result = _run_subprocess(command, cwd, timeout_seconds)
     stdout = (result.get('stdout') or '').strip()
@@ -244,7 +380,7 @@ def _execute_internal_skill_request(skill_id: str, request: str, cwd: Path, time
             result['app'] = app_name
         return result
 
-    if skill_id == 'feishu-wiki-skill':
+    if skill_id == 'feishu-doc-read':
         wiki_match = re.search(r'qima\.feishu\.cn/wiki/([A-Za-z0-9]+)', request)
         if not wiki_match:
             return {'error': 'No wiki token detected from request', 'skill_id': skill_id, 'request': request}
@@ -331,12 +467,34 @@ def _execute_internal_skill_request(skill_id: str, request: str, cwd: Path, time
             cwd,
             timeout_seconds,
         )
+        feishu_search_result, feishu_attempted_queries, feishu_search_error = _run_feishu_search_with_fallbacks(
+            request,
+            cwd,
+            timeout_seconds,
+        )
         return {
             'skill_id': skill_id,
             'request': request,
             'product_line': product_line,
             'pre_execute': pre_execute,
             'search_result': search_result,
+            'feishu_search_result': feishu_search_result,
+            'feishu_attempted_queries': feishu_attempted_queries,
+            'feishu_search_error': feishu_search_error,
+        }
+
+    if skill_id == 'feishu-doc-search':
+        query = request.strip()
+        if not query:
+            return {'error': 'Empty search query', 'skill_id': skill_id, 'request': request}
+
+        result, attempted_queries, error = _run_feishu_search_with_fallbacks(query, cwd, timeout_seconds)
+        return {
+            'skill_id': skill_id,
+            'request': request,
+            'attempted_queries': attempted_queries,
+            'search_result': result,
+            'error': error,
         }
 
     return {'error': f'Unsupported internal skill: {skill_id}', 'skill_id': skill_id, 'request': request}
@@ -354,7 +512,7 @@ async def execute_internal_skill_request(
     Execute a supported internal company skill request directly on this machine.
     Prefer this tool when the user asks to query internal systems like Tianwang logs or Feishu wiki docs.
 
-    Supported skill ids: zan-log-query, feishu-wiki-skill, zan-jira, company-help-center.
+    Supported skill ids: zan-log-query, feishu-doc-read, zan-jira, company-help-center, feishu-doc-search.
 
     :param skill_id: Internal skill id to execute.
     :param request: Original user request text.
@@ -2593,7 +2751,11 @@ async def query_knowledge_bases(
 
         user_id = __user__.get('id')
         user_group_ids = [group.id for group in await Groups.get_groups_by_member_id(user_id)]
-        query_embedding = await __request__.app.state.EMBEDDING_FUNCTION(query)
+        embedding_function = getattr(__request__.app.state, 'EMBEDDING_FUNCTION', None)
+        if embedding_function is None:
+            return json.dumps({'error': 'Embedding function not configured'}, ensure_ascii=False)
+
+        query_embedding = await embedding_function(query)
 
         # Min-heap of (distance, knowledge_base_id) - only holds top `count` results
         top_results_heap = []

@@ -67,6 +67,7 @@ HELP_CENTER_PRODUCT_TERMS = {
     "分销",
     "分销市场",
     "有赞云",
+    "高德券",
 }
 HELP_CENTER_BUSINESS_TERMS = {
     "店铺",
@@ -118,19 +119,11 @@ COMPANY_WEB_HOST_PATTERNS = (
     r'https?://qima\.feishu\.cn',
 )
 
-HELP_CENTER_CONSULTING_PATTERN = re.compile(
-    r"(怎么做|如何配置|如何设置|如何开通|在哪设置|哪里设置|流程是什么|怎么处理|"
-    r"能否使用|是否支持|可以.*吗|能.*吗|有哪些方式|有什么区别|优先级|规则|叠加)",
-    re.IGNORECASE,
-)
-
-
 def _detect_help_center_route(text: str, user_message: str) -> Optional[InternalRouteResult]:
     product_hits = {term for term in HELP_CENTER_PRODUCT_TERMS if term in text}
     business_hits = {term for term in HELP_CENTER_BUSINESS_TERMS if term in text}
-    has_consulting_intent = bool(HELP_CENTER_CONSULTING_PATTERN.search(user_message))
 
-    if product_hits and has_consulting_intent:
+    if product_hits:
         return InternalRouteResult(
             route_type=RouteType.FORCED_SKILL,
             skill_id="company-help-center",
@@ -140,7 +133,7 @@ def _detect_help_center_route(text: str, user_message: str) -> Optional[Internal
             reason="help_center_product_term_with_consulting_intent",
         )
 
-    if len(business_hits) >= 2 and has_consulting_intent:
+    if len(business_hits) >= 2:
         return InternalRouteResult(
             route_type=RouteType.FORCED_SKILL,
             skill_id="company-help-center",
@@ -183,7 +176,7 @@ def detect_company_resource_route(user_message: str) -> InternalRouteResult:
     if 'qima.feishu.cn/wiki/' in text:
         return InternalRouteResult(
             route_type=RouteType.FORCED_SKILL,
-            skill_id="feishu-wiki-skill",
+            skill_id="feishu-doc-read",
             request=user_message,
             resource_type="feishu_wiki",
             confidence="high",
@@ -307,7 +300,7 @@ def format_company_route_result(skill_id: str, parsed_result: dict) -> str:
 
         return '\n'.join(lines)
 
-    if skill_id == 'feishu-wiki-skill':
+    if skill_id == 'feishu-doc-read':
         raw_result = parsed_result.get('raw_result', {}) if isinstance(parsed_result, dict) else {}
         raw_data = _try_parse_json(raw_result.get('stdout', '')) or raw_result.get('data') or {}
         content = (((raw_data.get('data') or {}).get('content')) if isinstance(raw_data, dict) else None) or ''
@@ -380,6 +373,61 @@ def format_company_route_result(skill_id: str, parsed_result: dict) -> str:
                 other_url = item.get('help_center_url', '')
                 suffix = f' - {other_url}' if other_url else ''
                 lines.append(f"- {item.get('title', '未命名文档')}{suffix}")
+
+        feishu_search_error = parsed_result.get('feishu_search_error', '')
+        feishu_payload = {
+            'search_result': parsed_result.get('feishu_search_result', {}),
+            'error': feishu_search_error,
+        }
+        feishu_summary = format_company_route_result('feishu-doc-search', feishu_payload)
+        if feishu_summary and feishu_summary.strip():
+            lines.extend(['', '飞书补充检索：', feishu_summary])
+
+        return '\n'.join(lines)
+
+    if skill_id == 'feishu-doc-search':
+        search_result = parsed_result.get('search_result', {}) if isinstance(parsed_result, dict) else {}
+        data = search_result.get('data') if isinstance(search_result, dict) else None
+
+        items = []
+        if isinstance(data, dict):
+            data_block = data.get('data') or {}
+            items = data_block.get('items') or data_block.get('docs_entities') or []
+        elif isinstance(data, list):
+            items = data
+
+        if not items:
+            stdout_items = _try_parse_json(search_result.get('stdout', '')) if isinstance(search_result, dict) else None
+            if isinstance(stdout_items, dict):
+                items = ((stdout_items.get('data') or {}).get('items')) or (
+                    (stdout_items.get('data') or {}).get('docs_entities')
+                ) or []
+            elif isinstance(stdout_items, list):
+                items = stdout_items
+
+        if not items:
+            stderr = (search_result.get('stderr', '') if isinstance(search_result, dict) else '').strip()
+            if stderr:
+                return f'飞书检索执行失败：{_truncate(stderr, 400)}'
+            return '飞书检索未返回结果。'
+
+        lines = [f'飞书搜索命中 `{len(items)}` 条结果。']
+        for item in items[:5]:
+            title = item.get('title') or item.get('name') or '未命名文档'
+            url = item.get('url') or item.get('doc_url') or item.get('link') or ''
+            summary = (
+                item.get('summary')
+                or item.get('description')
+                or item.get('snippet')
+                or item.get('content')
+                or ''
+            )
+            line = f'- {title}'
+            if url:
+                line += f' - {url}'
+            lines.append(line)
+            if summary:
+                lines.append(f'  摘要：{_truncate(str(summary).replace("\\n", " "), 220)}')
 
         return '\n'.join(lines)
 

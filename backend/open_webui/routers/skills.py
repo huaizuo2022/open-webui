@@ -74,6 +74,7 @@ async def get_skill_list(
     query: Optional[str] = None,
     view_option: Optional[str] = None,
     page: Optional[int] = 1,
+    exclude_builtin: Optional[bool] = False,
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -87,6 +88,8 @@ async def get_skill_list(
         filter['query'] = query
     if view_option:
         filter['view_option'] = view_option
+    if exclude_builtin:
+        filter['exclude_builtin'] = True
 
     if not (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL):
         groups = await Groups.get_groups_by_member_id(user.id, db=db)

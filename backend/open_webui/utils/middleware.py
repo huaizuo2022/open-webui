@@ -148,7 +148,7 @@ log = logging.getLogger(__name__)
 
 
 SKILL_TRIGGER_RULES = [
-    (('飞书 wiki', '读取飞书文档', '飞书文档', 'docx', 'bitable', 'wiki'), 'feishu-wiki-skill'),
+    (('飞书 wiki', '读取飞书文档', '飞书文档', 'docx', 'bitable', 'wiki'), 'feishu-doc-read'),
     (('天网日志', 'traceid', '查报错', '查日志'), 'zan-log-query'),
     (('httpgateway', '网关日志', 'http 网关日志'), 'zan-kibana-query'),
     (('redis', '缓存'), 'zan-redis-query'),
@@ -1071,6 +1071,49 @@ async def process_tool_result(
     tool_result_embeds = []
     EXTERNAL_TOOL_TYPES = ('external', 'action', 'terminal')
 
+    async def extract_nested_base64_files(value):
+        extracted_files = []
+
+        if isinstance(value, dict):
+            source = value.get('source')
+            if (
+                value.get('type') == 'image'
+                and isinstance(source, dict)
+                and source.get('type') == 'base64'
+                and source.get('media_type')
+                and source.get('data')
+            ):
+                data_uri = f'data:{source["media_type"]};base64,{source["data"]}'
+                file_url = await get_file_url_from_base64(
+                    request,
+                    data_uri,
+                    {
+                        'chat_id': metadata.get('chat_id', None) if metadata else None,
+                        'message_id': metadata.get('message_id', None) if metadata else None,
+                        'session_id': metadata.get('session_id', None) if metadata else None,
+                        'result': value,
+                    },
+                    user,
+                )
+                if file_url:
+                    extracted_files.append({'type': 'image', 'url': file_url})
+                    value['source'] = {
+                        'type': 'file',
+                        'media_type': source.get('media_type'),
+                        'url': file_url,
+                    }
+                return extracted_files
+
+            for nested in value.values():
+                extracted_files.extend(await extract_nested_base64_files(nested))
+            return extracted_files
+
+        if isinstance(value, list):
+            for item in value:
+                extracted_files.extend(await extract_nested_base64_files(item))
+
+        return extracted_files
+
     # Support (HTMLResponse, result_context) tuples: the optional second
     # element lets tool authors provide the LLM with actionable context
     # about the generated embed instead of the generic fallback message.
@@ -1176,6 +1219,8 @@ async def process_tool_result(
                         }
 
     tool_result_files = []
+
+    tool_result_files.extend(await extract_nested_base64_files(tool_result))
 
     # Detect base64 image data URIs from tool results (e.g. binary image
     # responses from execute_tool_server).  Move the data URI to
@@ -1475,6 +1520,20 @@ async def chat_completion_tools_handler(
                         )
 
                 if tool_result:
+                    parsed_tool_result = None
+                    try:
+                        parsed_tool_result = json.loads(tool_result)
+                    except (TypeError, json.JSONDecodeError):
+                        parsed_tool_result = None
+
+                    if isinstance(parsed_tool_result, dict) and parsed_tool_result.get('error'):
+                        log.warning(
+                            'Skipping failed tool result from model context: tool=%s error=%s',
+                            tool_function_name,
+                            parsed_tool_result.get('error'),
+                        )
+                        return
+
                     tool = tools[tool_function_name]
                     tool_id = tool.get('tool_id', '')
 
@@ -3472,6 +3531,14 @@ async def non_streaming_chat_response_handler(response, ctx):
             choices = response_data.get('choices', [])
             if choices and choices[0].get('message', {}).get('content'):
                 content = response_data['choices'][0]['message']['content']
+                warnings = (metadata.get('internal_evidence_warnings') or []) if metadata else []
+                if warnings:
+                    from open_webui.utils.internal_evidence import build_internal_evidence_warning_text
+
+                    warning_text = build_internal_evidence_warning_text(warnings)
+                    if warning_text and warning_text not in content:
+                        content = f'{content}\n\n{warning_text}'.strip()
+                        response_data['choices'][0]['message']['content'] = content
 
                 if content:
                     await event_emitter(
@@ -3573,6 +3640,12 @@ async def streaming_chat_response_handler(response, ctx):
     events = ctx['events']
 
     event_emitter = ctx['event_emitter']
+    warning_text = ''
+    warnings = (metadata.get('internal_evidence_warnings') or []) if metadata else []
+    if warnings:
+        from open_webui.utils.internal_evidence import build_internal_evidence_warning_text
+
+        warning_text = build_internal_evidence_warning_text(warnings)
     event_caller = ctx['event_caller']
 
     extra_params = {
@@ -5039,9 +5112,12 @@ async def streaming_chat_response_handler(response, ctx):
                         item['status'] = 'completed'
 
                 title = await Chats.get_chat_title_by_id(metadata['chat_id'])
+                final_content = serialize_output(output)
+                if warning_text and warning_text not in final_content:
+                    final_content = f'{final_content}\n\n{warning_text}'.strip()
                 data = {
                     'done': True,
-                    'content': serialize_output(output),
+                    'content': final_content,
                     'output': output,
                     'title': title,
                     **({'usage': usage} if usage else {}),
@@ -5054,7 +5130,7 @@ async def streaming_chat_response_handler(response, ctx):
                         metadata['message_id'],
                         {
                             'done': True,
-                            'content': serialize_output(output),
+                            'content': final_content,
                             'output': output,
                             **({'usage': usage} if usage else {}),
                         },
@@ -5097,7 +5173,7 @@ async def streaming_chat_response_handler(response, ctx):
 
                 await background_tasks_handler(ctx)
                 ctx['assistant_message'] = {
-                    'content': serialize_output(output),
+                    'content': final_content,
                     'output': output,
                     **({'usage': usage} if usage else {}),
                 }

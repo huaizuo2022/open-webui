@@ -1,5 +1,7 @@
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import select, delete, update, or_
@@ -13,6 +15,35 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import JSON, BigInteger, Boolean, Column, String, Text, func
 
 log = logging.getLogger(__name__)
+
+
+def get_installed_skill_ids() -> set[str]:
+    dirs: list[Path] = []
+    codex_home = os.getenv('CODEX_HOME')
+    if codex_home:
+        dirs.append((Path(codex_home).expanduser() / 'skills').resolve())
+
+    dirs.extend(
+        [
+            Path.home() / '.codex' / 'skills',
+            Path.home() / '.zode' / 'skills',
+            Path.home() / '.claude' / 'skills',
+        ]
+    )
+
+    installed_ids: set[str] = set()
+    seen_dirs: set[Path] = set()
+
+    for directory in dirs:
+        resolved = directory.resolve()
+        if resolved in seen_dirs or not resolved.exists():
+            continue
+        seen_dirs.add(resolved)
+
+        for skill_file in resolved.rglob('SKILL.md'):
+            installed_ids.add(skill_file.parent.name)
+
+    return installed_ids
 
 ####################
 # Skills DB Schema
@@ -250,6 +281,11 @@ class SkillsTable:
                         stmt = stmt.filter(Skill.user_id == user_id)
                     elif view_option == 'shared':
                         stmt = stmt.filter(Skill.user_id != user_id)
+
+                    if filter.get('exclude_builtin'):
+                        builtin_skill_ids = get_installed_skill_ids()
+                        if builtin_skill_ids:
+                            stmt = stmt.filter(~Skill.id.in_(builtin_skill_ids))
 
                     # Apply access grant filtering
                     stmt = AccessGrants.has_permission_filter(
