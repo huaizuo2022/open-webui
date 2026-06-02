@@ -978,6 +978,19 @@ app.state.config.MODEL_ORDER_LIST = MODEL_ORDER_LIST
 app.state.config.DEFAULT_MODEL_METADATA = DEFAULT_MODEL_METADATA
 app.state.config.DEFAULT_MODEL_PARAMS = DEFAULT_MODEL_PARAMS
 
+# Pre-populate OPENAI_MODELS from configured default models so that
+# platforms without a /models endpoint (e.g. aggregation proxies) still
+# have their default models available for chat completion routing.
+for _model_id in _configured_default_model_ids():
+    if _model_id not in app.state.OPENAI_MODELS:
+        app.state.OPENAI_MODELS[_model_id] = {
+            'id': _model_id,
+            'name': _model_id,
+            'owned_by': 'openai',
+            'openai': {'id': _model_id},
+            'urlIdx': 0,
+        }
+
 
 app.state.config.DEFAULT_PROMPT_SUGGESTIONS = DEFAULT_PROMPT_SUGGESTIONS
 app.state.config.DEFAULT_PROMPT_SUGGESTION_GROUPS = DEFAULT_PROMPT_SUGGESTION_GROUPS
