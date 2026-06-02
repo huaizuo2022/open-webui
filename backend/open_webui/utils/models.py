@@ -56,7 +56,29 @@ async def fetch_ollama_models(request: Request, user: UserModel = None):
 
 async def fetch_openai_models(request: Request, user: UserModel = None):
     openai_response = await openai.get_all_models(request, user=user)
-    return openai_response['data']
+    models = openai_response['data']
+
+    # Fall back to DEFAULT_MODELS when the API has no /models endpoint
+    # (e.g. aggregation proxy gateways like zode).
+    if not models and request.app.state.config.ENABLE_OPENAI_API:
+        default_ids: list[str] = []
+        raw_defaults = str(request.app.state.config.DEFAULT_MODELS or '')
+        for mid in raw_defaults.split(','):
+            mid = mid.strip()
+            if mid:
+                default_ids.append(mid)
+        for mid in default_ids:
+            models.append({
+                'id': mid,
+                'name': mid,
+                'object': 'model',
+                'created': int(time.time()),
+                'owned_by': 'openai',
+                'openai': {'id': mid},
+                'urlIdx': 0,
+            })
+
+    return models
 
 
 async def get_all_base_models(request: Request, user: UserModel = None):

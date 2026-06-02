@@ -562,6 +562,21 @@ async def get_all_models(request: Request, user: UserModel) -> dict[str, list]:
     models = get_merged_models(map(extract_data, responses))
     log.debug(f'models: {models}')
 
+    # Fall back to DEFAULT_MODELS when the upstream API has no /models endpoint
+    # (e.g. aggregation proxy gateways like zode).
+    if not models:
+        defaults = str(request.app.state.config.DEFAULT_MODELS or '')
+        for model_id in defaults.split(','):
+            model_id = model_id.strip()
+            if model_id and model_id not in models:
+                models[model_id] = {
+                    'id': model_id,
+                    'name': model_id,
+                    'owned_by': 'openai',
+                    'openai': {'id': model_id},
+                    'urlIdx': 0,
+                }
+
     request.app.state.OPENAI_MODELS = models
     return {'data': list(models.values())}
 
