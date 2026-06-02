@@ -1,7 +1,7 @@
-# Open WebUI Anon 运维配置
+# 萤火 运维配置
 
 ## 项目关联
-- 项目名称: `open-webui-anon`
+- 项目名称: `firefly`
 - 项目路径: `~/Dev/open-webui-anon/`
 - 生产服务器: `43.160.238.95` (腾讯云)
 - 默认运行端口: `8081` (本地)

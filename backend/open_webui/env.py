@@ -126,9 +126,9 @@ if 'cuda_error' in locals():
 
 SRC_LOG_LEVELS = {}  # Legacy variable, do not remove
 
-WEBUI_NAME = os.environ.get('WEBUI_NAME', 'Open WebUI')
-if WEBUI_NAME != 'Open WebUI':
-    WEBUI_NAME += ' (Open WebUI)'
+WEBUI_NAME = os.environ.get('WEBUI_NAME', '萤火')
+if WEBUI_NAME != '萤火':
+    WEBUI_NAME += ' (萤火)'
 
 WEBUI_FAVICON_URL = 'https://openwebui.com/favicon.png'
 
@@ -143,7 +143,7 @@ ENV = os.environ.get('ENV', 'dev')
 FROM_INIT_PY = os.environ.get('FROM_INIT_PY', 'False').lower() == 'true'
 
 if FROM_INIT_PY:
-    PACKAGE_DATA = {'version': importlib.metadata.version('open-webui')}
+    PACKAGE_DATA = {'version': importlib.metadata.version('firefly')}
 else:
     try:
         PACKAGE_DATA = json.loads((BASE_DIR / 'package.json').read_text())
@@ -526,9 +526,9 @@ WEBUI_AUTH_TRUSTED_GROUPS_HEADER = os.environ.get('WEBUI_AUTH_TRUSTED_GROUPS_HEA
 WEBUI_AUTH_TRUSTED_ROLE_HEADER = os.environ.get('WEBUI_AUTH_TRUSTED_ROLE_HEADER', None)
 
 # Custom header name for API key authentication.  Defaults to 'x-api-key'.
-# Useful when Open WebUI sits behind a reverse proxy / API gateway that
+# Useful when 萤火 sits behind a reverse proxy / API gateway that
 # already uses the Authorization header for its own authentication — set
-# this to a unique header (e.g. 'X-OpenWebUI-Key') so the middleware
+# this to a unique header (e.g. 'X-Firefly-Key') so the middleware
 # checks the custom header instead and avoids the 401 short-circuit.
 CUSTOM_API_KEY_HEADER = os.environ.get('CUSTOM_API_KEY_HEADER', 'x-api-key')
 
@@ -558,7 +558,7 @@ BYPASS_PYDUB_PREPROCESSING = os.environ.get('BYPASS_PYDUB_PREPROCESSING', 'False
 
 # When disabled (default), the OpenAI catch-all proxy endpoint (/{path:path})
 # is blocked. Enable only if you need direct passthrough to upstream OpenAI-
-# compatible APIs for endpoints not natively handled by Open WebUI.
+# compatible APIs for endpoints not natively handled by 萤火.
 ENABLE_OPENAI_API_PASSTHROUGH = os.environ.get('ENABLE_OPENAI_API_PASSTHROUGH', 'False').lower() == 'true'
 
 WEBUI_AUTH_SIGNOUT_REDIRECT_URL = os.environ.get('WEBUI_AUTH_SIGNOUT_REDIRECT_URL', None)
@@ -1008,7 +1008,7 @@ OTEL_METRICS_EXPORTER_OTLP_INSECURE = (
 OTEL_LOGS_EXPORTER_OTLP_INSECURE = (
     os.environ.get('OTEL_LOGS_EXPORTER_OTLP_INSECURE', str(OTEL_EXPORTER_OTLP_INSECURE)).lower() == 'true'
 )
-OTEL_SERVICE_NAME = os.environ.get('OTEL_SERVICE_NAME', 'open-webui')
+OTEL_SERVICE_NAME = os.environ.get('OTEL_SERVICE_NAME', 'firefly')
 OTEL_RESOURCE_ATTRIBUTES = os.environ.get('OTEL_RESOURCE_ATTRIBUTES', '')  # e.g. key1=val1,key2=val2
 OTEL_TRACES_SAMPLER = os.environ.get('OTEL_TRACES_SAMPLER', 'parentbased_always_on').lower()
 OTEL_BASIC_AUTH_USERNAME = os.environ.get('OTEL_BASIC_AUTH_USERNAME', '')
@@ -1067,4 +1067,4 @@ SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 SMTP_USE_TLS = os.environ.get('SMTP_USE_TLS', 'True').lower() == 'true'
 SMTP_FROM_EMAIL = os.environ.get('SMTP_FROM_EMAIL', '')
-SMTP_FROM_NAME = os.environ.get('SMTP_FROM_NAME', 'Open WebUI')
+SMTP_FROM_NAME = os.environ.get('SMTP_FROM_NAME', '萤火')

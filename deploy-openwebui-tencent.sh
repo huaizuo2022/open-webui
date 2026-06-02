@@ -22,7 +22,7 @@ SSH_ARGS=(
 )
 
 echo "========================================="
-echo "Open WebUI Anon Tencent Cloud Deploy"
+echo "萤火 Tencent Cloud Deploy"
 echo "========================================="
 
 echo "🧱 Step 0: 构建前端产物..."

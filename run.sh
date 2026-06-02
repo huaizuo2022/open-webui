@@ -1,7 +1,7 @@
 #!/bin/bash
 
-image_name="open-webui"
-container_name="open-webui"
+image_name="firefly"
+container_name="firefly"
 host_port=3000
 container_port=8080
 

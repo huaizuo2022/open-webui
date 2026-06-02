@@ -848,7 +848,7 @@ app = FastAPI(
 # Used by readiness checks to gate traffic until startup work is done.
 app.state.startup_complete = False
 
-# For Open WebUI OIDC/OAuth2
+# For 萤火 OIDC/OAuth2
 oauth_manager = OAuthManager(app)
 app.state.oauth_manager = oauth_manager
 
@@ -2347,7 +2347,7 @@ async def generate_messages(
     pipeline, then converts the response back to Anthropic Messages format.
 
     Supports both streaming and non-streaming requests.
-    All models configured in Open WebUI are accessible via this endpoint.
+    All models configured in 萤火 are accessible via this endpoint.
 
     Authentication: Supports both standard Authorization header and
     Anthropic's x-api-key header (via middleware translation).
@@ -2694,7 +2694,7 @@ async def get_app_changelog():
 @app.get('/api/usage')
 async def get_current_usage(user=Depends(get_verified_user)):
     """
-    Get current usage statistics for Open WebUI.
+    Get current usage statistics for 萤火.
     This is an experimental endpoint and subject to change.
     """
     try:

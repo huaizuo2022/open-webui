@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 PORT="${PORT:-8081}"
 HOST="${HOST:-127.0.0.1}"
 LOG_DIR="${ROOT_DIR}/.runlogs"
-LOG_FILE="${LOG_DIR}/open-webui-${PORT}.log"
+LOG_FILE="${LOG_DIR}/firefly-${PORT}.log"
 HEALTH_URL="http://${HOST}:${PORT}/api/version"
 UVICORN_CMD=(
   .venv/bin/uvicorn
